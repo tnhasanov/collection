@@ -1,6 +1,6 @@
 import * as React from "react";
 import Link from "next/link";
-import { cx } from "@/components/ui";
+import { cx } from "@/lib/cx";
 
 export interface Column<T> {
   key: string;

@@ -2,9 +2,8 @@
 import * as React from "react";
 import Link from "next/link";
 
-export function cx(...parts: (string | false | null | undefined)[]) {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "@/lib/cx";
+export { cx };
 
 type ButtonVariant = "primary" | "secondary" | "solid" | "danger" | "ghost";
 export function Button({ variant = "secondary", size, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: "sm" }) {

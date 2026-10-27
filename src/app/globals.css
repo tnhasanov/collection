@@ -116,7 +116,8 @@ a {
   }
 
   .kpi {
-    @apply card card-pad flex flex-col gap-1;
+    @apply flex flex-col gap-1 rounded-lg border bg-surface p-4;
+    border-color: var(--color-line);
   }
   .kpi-label {
     @apply text-xs text-muted;
