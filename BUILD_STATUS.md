@@ -11,7 +11,7 @@ Last updated: 27 Oct 2026 (session clock) · branch `claude/bold-bohr-njc446`
 | `npm test` (unit) | 36 passing — annuity fixture, arrears/DPD, rule interpreter + golden cases, ERA/buckets, treatment, ranking, contact policy |
 | `npm run test:integration` | 14 passing — CTI login/ready, automatic allocation of C-DEMO-001, duplicate provider events, END → ACW, PTP save + wrap-up ack + duplicate save, suppression (120 h + PTP), verified payment keeps promise/cures case/replay = DUPLICATE, partial payment, failed-attempt retry, blocked cases, concurrent claims, payment-before-dial withdrawal, payment-during-call notification + deferred break, failed wrap-up ack exception, permission matrix |
 | `npm run e2e` (browser critical path) | passed — login → connect → Ready → automatic reservation → screen pop → End → ACW → PTP saved → wrap-up acknowledged → supervisor view → mock verified payment PROCESSED → replay DUPLICATE → customer 360 |
-| `npm run screenshots` | 79 images in `docs/screenshots/` at 1440 / 1280 / 1024 px (24 screens + login + agent home) |
+| `npm run screenshots` | 78 images in `docs/screenshots/` at 1440 / 1280 / 1024 px (24 screens + login + agent home) |
 | Governance flows (API) | template draft → approval → ACTIVE; campaign create → review → release approval → RUNNING → pause → cancel; arrangement review → approval → mock core confirmation; handover create → approval → export → accept; settings change → POLICY_ACTIVATION approval → applied; self-approval refused; imports validate → dry-run → commit → rollback (reversal events), duplicate batch refused |
 
 ## Scope status by screen
