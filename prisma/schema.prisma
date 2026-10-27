@@ -1,0 +1,1767 @@
+// ATB Collections - relational data model (synthetic demo build).
+// Money and probabilities use fixed-scale decimals; binary floating point is never persisted for amounts.
+// Imported core facts (contracts, schedules, postings, balances, DPD) stay authoritative and are never
+// mutated by local simulation. Audit events are append-only (database trigger in the initial migration).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ------------------------------------------------------------------
+// Identity, teams and access
+// ------------------------------------------------------------------
+
+enum Role {
+  AGENT
+  SENIOR_AGENT
+  TEAM_LEAD
+  COLLECTIONS_HEAD
+  RISK_ANALYST
+  MODEL_MAKER
+  INDEPENDENT_APPROVER
+  INTEGRATION_OPERATOR
+  AUDITOR
+  ADMIN
+  SERVICE
+}
+
+enum Seniority {
+  REGULAR
+  SENIOR
+}
+
+enum Language {
+  AZ
+  EN
+  RU
+}
+
+model User {
+  id               String    @id @default(cuid())
+  username         String    @unique
+  displayName      String
+  email            String?
+  passwordHash     String?
+  role             Role
+  teamId           String?
+  team             Team?     @relation(fields: [teamId], references: [id])
+  languages        Language[]
+  skills           String[]
+  branchScopes     String[]
+  isActive         Boolean   @default(true)
+  isServiceAccount Boolean   @default(false)
+  identityRef      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  agentProfile       AgentProfile?
+  sessions           Session[]
+  ownedWorkItems     WorkItem[]           @relation("WorkItemOwner")
+  claimedWorkItems   WorkItem[]           @relation("WorkItemClaimer")
+  reservations       RoutingReservation[]
+  agentSessions      AgentSession[]
+  interactions       Interaction[]
+  ownedCases         CollectionCase[]     @relation("CaseOwner")
+  makerApprovals     ApprovalRequest[]    @relation("ApprovalMaker")
+  checkerApprovals   ApprovalRequest[]    @relation("ApprovalChecker")
+  ownedExceptions    ExceptionCase[]      @relation("ExceptionOwner")
+  ownedSupportCases  SupportCase[]        @relation("SupportOwner")
+  savedViews         SavedView[]
+  notifications      Notification[]
+  promisesCreated    Promise[]            @relation("PromiseCreator")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+
+  @@index([userId])
+}
+
+enum TeamKind {
+  REGULAR
+  SENIOR
+  SUPPORT
+  RECOVERY
+  MANAGEMENT
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  kind      TeamKind
+  branch    String?
+  createdAt DateTime @default(now())
+  users     User[]
+  cases     CollectionCase[]
+}
+
+model AgentProfile {
+  userId           String    @id
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seniority        Seniority
+  extension        String?
+  providerAgentRef String?   @unique
+  shiftStart       String?
+  shiftEnd         String?
+  campaignCodes    String[]
+  maxConcurrentVoice Int     @default(1)
+  autoContinueAllowed Boolean @default(true)
+  manualDialAllowed   Boolean @default(false)
+  createdAt        DateTime  @default(now())
+}
+
+// ------------------------------------------------------------------
+// Customer, contacts, loans and schedules (core projections)
+// ------------------------------------------------------------------
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  DECEASED_NOTIFIED
+  LEGAL
+}
+
+model Customer {
+  id            String         @id
+  cif           String         @unique
+  displayName   String
+  branch        String
+  language      Language       @default(AZ)
+  status        CustomerStatus @default(ACTIVE)
+  segment       String?
+  sourceSystem  String         @default("CUSTOMER_MASTER_DEMO")
+  sourceAsOf    DateTime
+  specialHandling Boolean      @default(false)
+  specialHandlingReason String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  contactPoints    ContactPoint[]
+  loans            Loan[]
+  cases            CollectionCase[]
+  featureSnapshots FeatureSnapshot[]
+  scores           Score[]
+  decisions        DecisionSnapshot[]
+  workItems        WorkItem[]
+  reservations     RoutingReservation[]
+  interactions     Interaction[]
+  promises         Promise[]
+  supportCases     SupportCase[]
+  payments         Payment[]
+  paymentClaims    PaymentClaim[]
+  exceptions       ExceptionCase[]
+  outboundMessages OutboundMessage[]
+  experimentAssignments ExperimentAssignment[]
+  arrangements     Arrangement[]
+}
+
+enum ContactType {
+  MOBILE
+  LANDLINE
+  EMAIL
+  ADDRESS
+}
+
+enum ContactVerification {
+  VERIFIED
+  UNVERIFIED
+  INVALID
+}
+
+model ContactPoint {
+  id                 String              @id @default(cuid())
+  customerId         String
+  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type               ContactType
+  value              String
+  isPrimary          Boolean             @default(false)
+  verification       ContactVerification @default(UNVERIFIED)
+  invalidReason      String?
+  invalidatedAt      DateTime?
+  invalidatedByInteractionId String?
+  restricted         Boolean             @default(false)
+  restrictionReason  String?
+  preferredWindow    String?
+  sourceSystem       String              @default("CUSTOMER_MASTER_DEMO")
+  sourceAsOf         DateTime
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  reservations RoutingReservation[]
+  dialAttempts DialAttempt[]
+  interactions Interaction[]
+  outboundMessages OutboundMessage[]
+
+  @@index([customerId])
+  @@index([value])
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID_OFF
+  CLOSED
+  RESTRUCTURED
+}
+
+model Loan {
+  id                 String     @id
+  coreLoanId         String     @unique
+  customerId         String
+  customer           Customer   @relation(fields: [customerId], references: [id])
+  product            String     @default("CASH_LOAN_ANNUITY")
+  currency           String     @default("AZN")
+  originationDate    DateTime   @db.Date
+  maturityDate       DateTime   @db.Date
+  firstDueDate       DateTime   @db.Date
+  principalOriginal  Decimal    @db.Decimal(18, 2)
+  nominalAnnualRate  Decimal    @db.Decimal(9, 6)
+  tenorMonths        Int
+  status             LoanStatus @default(ACTIVE)
+  branch             String
+
+  // Current authoritative projection (refreshed from core events / imports)
+  principalOutstanding Decimal  @db.Decimal(18, 2)
+  overduePrincipal     Decimal  @db.Decimal(18, 2) @default(0)
+  overdueInterest      Decimal  @db.Decimal(18, 2) @default(0)
+  accruedInterestNotDue Decimal @db.Decimal(18, 2) @default(0)
+  feesDue              Decimal  @db.Decimal(18, 2) @default(0)
+  unappliedFunds       Decimal  @db.Decimal(18, 2) @default(0)
+  totalOverdue         Decimal  @db.Decimal(18, 2) @default(0)
+  dpd                  Int      @default(0)
+  oldestUnpaidDueDate  DateTime? @db.Date
+  nextDueDate          DateTime? @db.Date
+  nextDueAmount        Decimal? @db.Decimal(18, 2)
+  balanceVersion       Int      @default(1)
+  balancesAsOf         DateTime
+  sourceSystem         String   @default("CORE_DEMO")
+  sourceVersion        String   @default("1")
+  lastPaymentAt        DateTime?
+  lastPaymentAmount    Decimal? @db.Decimal(18, 2)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  snapshots        LoanSnapshot[]
+  scheduleVersions ScheduleVersion[]
+  payments         Payment[]
+  allocations      PaymentAllocation[]
+  caseLoans        CaseLoan[]
+  interactions     Interaction[]
+  paymentClaims    PaymentClaim[]
+  exceptions       ExceptionCase[]
+
+  @@index([customerId])
+  @@index([dpd])
+}
+
+model LoanSnapshot {
+  id                   String   @id @default(cuid())
+  loanId               String
+  loan                 Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  asOf                 DateTime
+  balanceVersion       Int
+  principalOutstanding Decimal  @db.Decimal(18, 2)
+  overduePrincipal     Decimal  @db.Decimal(18, 2)
+  overdueInterest      Decimal  @db.Decimal(18, 2)
+  accruedInterestNotDue Decimal @db.Decimal(18, 2)
+  feesDue              Decimal  @db.Decimal(18, 2)
+  unappliedFunds       Decimal  @db.Decimal(18, 2)
+  totalOverdue         Decimal  @db.Decimal(18, 2)
+  dpd                  Int
+  status               LoanStatus
+  sourceEventId        String?
+  reason               String
+  createdAt            DateTime @default(now())
+
+  @@index([loanId, asOf])
+}
+
+enum ScheduleSource {
+  CORE_IMPORT
+  LOCAL_SIMULATION
+}
+
+model ScheduleVersion {
+  id            String         @id @default(cuid())
+  loanId        String
+  loan          Loan           @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  versionNo     Int
+  source        ScheduleSource
+  sourceRef     String?
+  effectiveFrom DateTime       @db.Date
+  isCurrent     Boolean        @default(false)
+  importBatchId String?
+  checksum      String?
+  basis         Json?
+  createdAt     DateTime       @default(now())
+  installments  Installment[]
+
+  @@unique([loanId, versionNo, source])
+  @@index([loanId, isCurrent])
+}
+
+enum InstallmentStatus {
+  SCHEDULED
+  DUE
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+model Installment {
+  id                String            @id @default(cuid())
+  scheduleVersionId String
+  scheduleVersion   ScheduleVersion   @relation(fields: [scheduleVersionId], references: [id], onDelete: Cascade)
+  seq               Int
+  dueDate           DateTime          @db.Date
+  openingPrincipal  Decimal           @db.Decimal(18, 2)
+  principalDue      Decimal           @db.Decimal(18, 2)
+  interestDue       Decimal           @db.Decimal(18, 2)
+  feeDue            Decimal           @db.Decimal(18, 2) @default(0)
+  totalDue          Decimal           @db.Decimal(18, 2)
+  closingPrincipal  Decimal           @db.Decimal(18, 2)
+  paidPrincipal     Decimal           @db.Decimal(18, 2) @default(0)
+  paidInterest      Decimal           @db.Decimal(18, 2) @default(0)
+  paidFee           Decimal           @db.Decimal(18, 2) @default(0)
+  status            InstallmentStatus @default(SCHEDULED)
+  paidAt            DateTime?
+  allocations       PaymentAllocation[]
+
+  @@unique([scheduleVersionId, seq])
+  @@index([dueDate])
+}
+
+// ------------------------------------------------------------------
+// Payments, allocations, claims
+// ------------------------------------------------------------------
+
+enum PaymentStatus {
+  POSTED
+  PENDING
+  REVERSED
+  QUARANTINED
+  UNMATCHED
+}
+
+enum ReconciliationStatus {
+  MATCHED
+  UNMATCHED
+  REVIEW
+  RESOLVED
+  REVERSAL_LINKED
+}
+
+model Payment {
+  id                   String               @id @default(cuid())
+  sourceSystem         String
+  sourceTransactionId  String
+  loanId               String?
+  loan                 Loan?                @relation(fields: [loanId], references: [id])
+  customerId           String?
+  customer             Customer?            @relation(fields: [customerId], references: [id])
+  loanRef              String?
+  customerRef          String?
+  amount               Decimal              @db.Decimal(18, 2)
+  currency             String               @default("AZN")
+  eventAt              DateTime
+  valueDate            DateTime             @db.Date
+  postingDate          DateTime?            @db.Date
+  status               PaymentStatus
+  reversalOfId         String?              @unique
+  reversalOf           Payment?             @relation("PaymentReversal", fields: [reversalOfId], references: [id])
+  reversedBy           Payment?             @relation("PaymentReversal")
+  reconciliation       ReconciliationStatus @default(MATCHED)
+  reconciliationNote   String?
+  importBatchId        String?
+  integrationEventId   String?
+  allocationPolicy     String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  allocations          PaymentAllocation[]
+  promiseLinks         PromisePaymentLink[]
+  exceptions           ExceptionCase[]
+
+  @@unique([sourceSystem, sourceTransactionId])
+  @@index([loanId])
+  @@index([customerId])
+  @@index([valueDate])
+}
+
+model PaymentAllocation {
+  id              String      @id @default(cuid())
+  paymentId       String
+  payment         Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  loanId          String
+  loan            Loan        @relation(fields: [loanId], references: [id])
+  installmentId   String?
+  installment     Installment? @relation(fields: [installmentId], references: [id])
+  principalAmount Decimal     @db.Decimal(18, 2) @default(0)
+  interestAmount  Decimal     @db.Decimal(18, 2) @default(0)
+  feeAmount       Decimal     @db.Decimal(18, 2) @default(0)
+  unappliedAmount Decimal     @db.Decimal(18, 2) @default(0)
+  policy          String
+  reversed        Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+
+  @@index([paymentId])
+  @@index([installmentId])
+}
+
+enum ClaimStatus {
+  OPEN
+  MATCHED
+  NOT_FOUND
+  RESOLVED
+}
+
+model PaymentClaim {
+  id            String      @id @default(cuid())
+  customerId    String
+  customer      Customer    @relation(fields: [customerId], references: [id])
+  loanId        String?
+  loan          Loan?       @relation(fields: [loanId], references: [id])
+  interactionId String?
+  claimedAmount Decimal?    @db.Decimal(18, 2)
+  claimedDate   DateTime?   @db.Date
+  channel       String?
+  reference     String?
+  status        ClaimStatus @default(OPEN)
+  holdUntil     DateTime?
+  resolution    String?
+  matchedPaymentId String?
+  createdAt     DateTime    @default(now())
+  resolvedAt    DateTime?
+
+  @@index([customerId])
+}
+
+// ------------------------------------------------------------------
+// Collection cases, decisions, models, strategies
+// ------------------------------------------------------------------
+
+enum CaseStatus {
+  OPEN
+  CURED
+  CLOSED
+  HANDOVER
+}
+
+model CollectionCase {
+  id             String     @id @default(cuid())
+  customerId     String
+  customer       Customer   @relation(fields: [customerId], references: [id])
+  episodeNo      Int        @default(1)
+  status         CaseStatus @default(OPEN)
+  portfolio      String     @default("EARLY_ARREARS")
+  openedAt       DateTime
+  closedAt       DateTime?
+  closeReason    String?
+  ownerUserId    String?
+  owner          User?      @relation("CaseOwner", fields: [ownerUserId], references: [id])
+  teamId         String?
+  team           Team?      @relation(fields: [teamId], references: [id])
+  maxDpd         Int        @default(0)
+  totalOverdue   Decimal    @db.Decimal(18, 2) @default(0)
+  modelExposure  Decimal    @db.Decimal(18, 2) @default(0)
+  latestDecisionId String?
+  entryDpd       Int?
+  entryExposure  Decimal?   @db.Decimal(18, 2)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  caseLoans    CaseLoan[]
+  workItems    WorkItem[]
+  reservations RoutingReservation[]
+  interactions Interaction[]
+  promises     Promise[]
+  decisions    DecisionSnapshot[]
+  supportCases SupportCase[]
+  exceptions   ExceptionCase[]
+  arrangements Arrangement[]
+  handovers    HandoverPacket[]
+
+  @@index([customerId, status])
+}
+
+model CaseLoan {
+  caseId String
+  case   CollectionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  loanId String
+  loan   Loan           @relation(fields: [loanId], references: [id])
+  linkedAt DateTime @default(now())
+
+  @@id([caseId, loanId])
+}
+
+enum VersionStatus {
+  DRAFT
+  TESTED
+  APPROVED
+  ACTIVE
+  RETIRED
+  REJECTED
+}
+
+model ModelVersion {
+  id                   String        @id @default(cuid())
+  provider             String
+  modelCode            String
+  version              String
+  checksum             String?
+  status               VersionStatus @default(DRAFT)
+  source               String
+  owner                String
+  observationFrequency String
+  targetPopulation     String
+  targetEvent          String
+  horizon              String
+  rulesJson            Json
+  featureDictionary    Json
+  unresolvedIssues     Json
+  approvedBy           String?
+  approvedAt           DateTime?
+  activatedAt          DateTime?
+  validFrom            DateTime?
+  validTo              DateTime?
+  notes                String?
+  createdAt            DateTime      @default(now())
+  scores               Score[]
+  decisions            DecisionSnapshot[]
+
+  @@unique([modelCode, version])
+}
+
+model FeatureSnapshot {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  asOf         DateTime @db.Date
+  observationMonth String
+  features     Json
+  source       String   @default("PROMETEIA_FEATURE_FILE_DEMO")
+  isLatestComplete Boolean @default(false)
+  qualityFlags String[]
+  importBatchId String?
+  createdAt    DateTime @default(now())
+  scores       Score[]
+
+  @@unique([customerId, observationMonth])
+}
+
+enum DecisionSegment {
+  DPD_0
+  DPD_1_3
+  DPD_4_10
+  DPD_11_16
+  DPD_17_23
+  DPD_24_30
+  DPD_31_45
+  DPD_46_60
+  DPD_61_90
+  DPD_91_PLUS
+}
+
+enum ScoreStatus {
+  SCORED
+  UNSCORED
+}
+
+enum ProbabilitySource {
+  DRAFT_TREE_4_10
+  DEMO_ONLY_1_3_RULE
+  DRAFT_ROLL_RATE_11_30
+  NONE
+}
+
+model Score {
+  id                String            @id @default(cuid())
+  customerId        String
+  customer          Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  featureSnapshotId String?
+  featureSnapshot   FeatureSnapshot?  @relation(fields: [featureSnapshotId], references: [id])
+  modelVersionId    String?
+  modelVersion      ModelVersion?     @relation(fields: [modelVersionId], references: [id])
+  segment           DecisionSegment
+  status            ScoreStatus
+  riskClass         Int?
+  probability       Decimal?          @db.Decimal(9, 6)
+  probabilitySource ProbabilitySource
+  tracePath         Json
+  reasonCodes       String[]
+  featuresAsOf      DateTime?
+  createdAt         DateTime          @default(now())
+  decisions         DecisionSnapshot[]
+
+  @@index([customerId, createdAt])
+}
+
+model StrategyVersion {
+  id          String        @id @default(cuid())
+  code        String
+  version     String
+  status      VersionStatus @default(DRAFT)
+  configJson  Json
+  createdBy   String
+  approvedBy  String?
+  activatedAt DateTime?
+  retiredAt   DateTime?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  decisions   DecisionSnapshot[]
+  campaigns   Campaign[]
+
+  @@unique([code, version])
+}
+
+model ContactPolicyVersion {
+  id          String        @id @default(cuid())
+  code        String
+  version     String
+  status      VersionStatus @default(DRAFT)
+  configJson  Json
+  createdBy   String
+  approvedBy  String?
+  activatedAt DateTime?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  decisions   DecisionSnapshot[]
+
+  @@unique([code, version])
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model DecisionRun {
+  id              String    @id @default(cuid())
+  businessDate    DateTime  @db.Date
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  status          RunStatus @default(RUNNING)
+  populationCount Int       @default(0)
+  scoredCount     Int       @default(0)
+  unscoredCount   Int       @default(0)
+  bucketCutoffs   Json?
+  tieHandling     String?
+  modelVersionId  String?
+  strategyVersionId String?
+  policyVersionId String?
+  triggeredBy     String
+  notes           String?
+  decisions       DecisionSnapshot[]
+}
+
+model DecisionSnapshot {
+  id                  String            @id @default(cuid())
+  runId               String
+  run                 DecisionRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  businessDate        DateTime          @db.Date
+  customerId          String
+  customer            Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  caseId              String?
+  case                CollectionCase?   @relation(fields: [caseId], references: [id])
+  decisionDpd         Int
+  segment             DecisionSegment
+  exposure            Decimal           @db.Decimal(18, 2)
+  exposureDefinition  String
+  totalOverdue        Decimal           @db.Decimal(18, 2)
+  scoreId             String?
+  score               Score?            @relation(fields: [scoreId], references: [id])
+  probability         Decimal?          @db.Decimal(9, 6)
+  probabilitySource   ProbabilitySource
+  riskClass           Int?
+  era                 Decimal?          @db.Decimal(18, 2)
+  actionBucket        Int?
+  recommendedAction   String
+  effectiveAction     String
+  eligibility         Json
+  reasonCodes         String[]
+  rank                Int?
+  tiebreak            Json?
+  requiredSkill       Seniority?
+  modelVersionId      String?
+  modelVersion        ModelVersion?     @relation(fields: [modelVersionId], references: [id])
+  strategyVersionId   String?
+  strategyVersion     StrategyVersion?  @relation(fields: [strategyVersionId], references: [id])
+  policyVersionId     String?
+  policyVersion       ContactPolicyVersion? @relation(fields: [policyVersionId], references: [id])
+  isCurrent           Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  workItems           WorkItem[]
+  reservations        RoutingReservation[]
+
+  @@index([customerId, isCurrent])
+  @@index([runId])
+  @@index([businessDate, rank])
+}
+
+// ------------------------------------------------------------------
+// Work items, routing, agent sessions, dialer
+// ------------------------------------------------------------------
+
+enum WorkItemType {
+  CALL
+  CALLBACK
+  PTP_FOLLOWUP
+  RECONCILIATION
+  DISPUTE_REVIEW
+  SUPPORT_REVIEW
+  MANUAL_REVIEW
+  LATER_STAGE_REVIEW
+  HANDOVER
+  DIGITAL_REMINDER
+}
+
+enum WorkItemStatus {
+  QUEUED
+  ELIGIBLE
+  DEFERRED
+  CLAIMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+model WorkItem {
+  id                 String          @id @default(cuid())
+  caseId             String
+  case               CollectionCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  customerId         String
+  customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type               WorkItemType
+  status             WorkItemStatus  @default(QUEUED)
+  activeKey          String?
+  priority           Decimal         @db.Decimal(18, 2) @default(0)
+  rank               Int?
+  nextEligibleAt     DateTime?
+  dueAt              DateTime?
+  deferredReasons    String[]
+  requiredSkill      Seniority?
+  language           Language?
+  campaignCode       String?
+  ownerUserId        String?
+  owner              User?           @relation("WorkItemOwner", fields: [ownerUserId], references: [id])
+  claimedByUserId    String?
+  claimedBy          User?           @relation("WorkItemClaimer", fields: [claimedByUserId], references: [id])
+  claimedAt          DateTime?
+  leaseExpiresAt     DateTime?
+  decisionSnapshotId String?
+  decisionSnapshot   DecisionSnapshot? @relation(fields: [decisionSnapshotId], references: [id])
+  sourceInteractionId String?
+  reason             String?
+  cancelReason       String?
+  completedAt        DateTime?
+  version            Int             @default(1)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  reservations       RoutingReservation[]
+  interactions       Interaction[]
+
+  @@index([status, nextEligibleAt])
+  @@index([customerId, type, status])
+  @@index([ownerUserId, status])
+}
+
+enum ReservationStatus {
+  PENDING
+  AUTHORIZED
+  DIALING
+  CONNECTED
+  WRAP_UP
+  RELEASED
+  CANCELLED
+  EXPIRED
+  FAILED
+}
+
+model RoutingReservation {
+  id                 String            @id @default(cuid())
+  correlationId      String            @unique
+  workItemId         String
+  workItem           WorkItem          @relation(fields: [workItemId], references: [id])
+  customerId         String
+  customer           Customer          @relation(fields: [customerId], references: [id])
+  caseId             String
+  case               CollectionCase    @relation(fields: [caseId], references: [id])
+  agentUserId        String
+  agent              User              @relation(fields: [agentUserId], references: [id])
+  agentSessionId     String?
+  agentSession       AgentSession?     @relation(fields: [agentSessionId], references: [id])
+  campaignCode       String
+  contactPointId     String
+  contactPoint       ContactPoint      @relation(fields: [contactPointId], references: [id])
+  status             ReservationStatus @default(PENDING)
+  requiredSkill      Seniority?
+  expiresAt          DateTime
+  decisionSnapshotId String?
+  decisionSnapshot   DecisionSnapshot? @relation(fields: [decisionSnapshotId], references: [id])
+  strategyVersionId  String?
+  policyVersionId    String?
+  modelVersionId     String?
+  authorizationRef   String?
+  providerTicketRef  String?
+  eligibilityJson    Json?
+  releasedAt         DateTime?
+  releaseReason      String?
+  withdrawalStatus   String?
+  isManual           Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  dialAttempts       DialAttempt[]
+  interactions       Interaction[]
+
+  @@index([customerId, status])
+  @@index([agentUserId, status])
+}
+
+enum AgentState {
+  OFFLINE
+  NOT_READY
+  READY
+  RESERVED
+  DIALING
+  TALKING
+  ACW
+  BREAK
+  CONNECTION_PROBLEM
+}
+
+model AgentSession {
+  id                    String     @id @default(cuid())
+  userId                String
+  user                  User       @relation(fields: [userId], references: [id])
+  providerAgentRef      String
+  extension             String?
+  requestedState        AgentState @default(NOT_READY)
+  confirmedState        AgentState @default(OFFLINE)
+  stateSince            DateTime   @default(now())
+  stateReason           String?
+  autoContinue          Boolean    @default(true)
+  campaignCodes         String[]
+  ctiConnected          Boolean    @default(false)
+  ctiStatus             String     @default("DISCONNECTED")
+  lastHeartbeatAt       DateTime?
+  pendingBreakAfterWrap Boolean    @default(false)
+  pendingLogoffAfterWrap Boolean   @default(false)
+  currentReservationId  String?
+  currentInteractionId  String?
+  lastCommandReceiptId  String?
+  startedAt             DateTime   @default(now())
+  endedAt               DateTime?
+  isActive              Boolean    @default(true)
+  reservations          RoutingReservation[]
+
+  @@index([userId, isActive])
+}
+
+enum TechnicalResult {
+  ANSWERED
+  NO_ANSWER
+  BUSY
+  UNREACHABLE
+  FAILED
+  MACHINE
+  CANCELLED
+  UNKNOWN
+}
+
+model DialAttempt {
+  id                 String             @id @default(cuid())
+  reservationId      String
+  reservation        RoutingReservation @relation(fields: [reservationId], references: [id])
+  contactPointId     String
+  contactPoint       ContactPoint       @relation(fields: [contactPointId], references: [id])
+  providerAttemptRef String?            @unique
+  startedAt          DateTime
+  ringingAt          DateTime?
+  answeredAt         DateTime?
+  bridgedAt          DateTime?
+  endedAt            DateTime?
+  technicalResult    TechnicalResult    @default(UNKNOWN)
+  resultSource       String             @default("PROVIDER")
+  correctedResult    TechnicalResult?
+  correctionReason   String?
+  createdAt          DateTime           @default(now())
+  interactions       Interaction[]
+
+  @@index([reservationId])
+}
+
+enum Channel {
+  VOICE_OUTBOUND
+  VOICE_INBOUND
+  SMS
+  MANUAL_NOTE
+}
+
+enum IdentityStatus {
+  RPC_VERIFIED
+  THIRD_PARTY
+  VERIFICATION_FAILED
+  WRONG_PERSON
+  WRONG_NUMBER
+  NOT_ESTABLISHED
+}
+
+enum BusinessOutcome {
+  PTP
+  PARTIAL_COMMITMENT
+  NO_COMMITMENT
+  CALLBACK_REQUESTED
+  ALREADY_PAID_CLAIM
+  DISPUTE
+  SUPPORT_NEEDED
+  REFUSED
+  SPECIAL_REFERRAL
+  NO_CONVERSATION
+}
+
+enum NonPaymentReason {
+  SALARY_TIMING
+  TEMPORARY_SHORTFALL
+  INCOME_INTERRUPTION
+  AFFORDABILITY
+  FORGOT
+  TECHNICAL_PAYMENT_ISSUE
+  DISPUTED_DEBT
+  OTHER
+  NOT_STATED
+}
+
+enum NextActionKind {
+  MONITOR_PTP
+  ELIGIBLE_CALLBACK
+  RECONCILE_CLAIM
+  DISPUTE_REVIEW
+  SUPPORT_REFERRAL
+  POLICY_RETRY
+  CONTACT_CORRECTION
+  COOLDOWN
+  NO_FURTHER_ACTION
+  SPECIAL_REFERRAL
+}
+
+enum InteractionStatus {
+  OPEN
+  DRAFT
+  SAVED
+  CORRECTED
+  ABANDONED
+}
+
+enum WrapUpStatus {
+  NOT_REQUIRED
+  PENDING
+  ACKNOWLEDGED
+  FAILED
+}
+
+model Interaction {
+  id                   String             @id @default(cuid())
+  correlationId        String             @unique
+  idempotencyKey       String?            @unique
+  customerId           String
+  customer             Customer           @relation(fields: [customerId], references: [id])
+  caseId               String?
+  case                 CollectionCase?    @relation(fields: [caseId], references: [id])
+  loanId               String?
+  loan                 Loan?              @relation(fields: [loanId], references: [id])
+  workItemId           String?
+  workItem             WorkItem?          @relation(fields: [workItemId], references: [id])
+  reservationId        String?
+  reservation          RoutingReservation? @relation(fields: [reservationId], references: [id])
+  dialAttemptId        String?
+  dialAttempt          DialAttempt?       @relation(fields: [dialAttemptId], references: [id])
+  agentUserId          String?
+  agent                User?              @relation(fields: [agentUserId], references: [id])
+  channel              Channel
+  contactPointId       String?
+  contactPoint         ContactPoint?      @relation(fields: [contactPointId], references: [id])
+  providerInteractionRef String?
+  campaignCode         String?
+  startedAt            DateTime
+  connectedAt          DateTime?
+  endedAt              DateTime?
+  acwStartedAt         DateTime?
+  acwEndedAt           DateTime?
+  talkSeconds          Int?
+  ringSeconds          Int?
+  acwSeconds           Int?
+  technicalResult      TechnicalResult?
+  identityStatus       IdentityStatus?
+  businessOutcome      BusinessOutcome?
+  nonPaymentReason     NonPaymentReason?
+  nextAction           NextActionKind?
+  nextActionDetail     Json?
+  note                 String?
+  flags                String[]
+  status               InteractionStatus  @default(OPEN)
+  draftJson            Json?
+  draftSavedAt         DateTime?
+  savedAt              DateTime?
+  wrapUpStatus         WrapUpStatus       @default(NOT_REQUIRED)
+  wrapUpReceiptId      String?
+  wrapUpAckAt          DateTime?
+  providerDispositionCode String?
+  scriptVersionId      String?
+  dispositionVersion   String?
+  policyVersionId      String?
+  isRpc                Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  segments             InteractionSegment[]
+  corrections          OutcomeCorrection[]
+  promises             Promise[]
+
+  @@index([customerId, startedAt])
+  @@index([agentUserId, startedAt])
+  @@index([status, wrapUpStatus])
+}
+
+model InteractionSegment {
+  id             String      @id @default(cuid())
+  interactionId  String
+  interaction    Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  agentUserId    String?
+  providerLegRef String?
+  kind           String      @default("PRIMARY")
+  startedAt      DateTime
+  endedAt        DateTime?
+}
+
+model OutcomeCorrection {
+  id             String      @id @default(cuid())
+  interactionId  String
+  interaction    Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  correctedBy    String
+  reason         String
+  beforeJson     Json
+  afterJson      Json
+  createdAt      DateTime    @default(now())
+}
+
+// ------------------------------------------------------------------
+// Promises to pay
+// ------------------------------------------------------------------
+
+enum PromiseStatus {
+  ACTIVE
+  KEPT
+  PARTIALLY_PAID
+  BROKEN
+  CANCELLED
+  PENDING_RECONCILIATION
+}
+
+model Promise {
+  id                     String        @id @default(cuid())
+  customerId             String
+  customer               Customer      @relation(fields: [customerId], references: [id])
+  caseId                 String?
+  case                   CollectionCase? @relation(fields: [caseId], references: [id])
+  interactionId          String?
+  interaction            Interaction?  @relation(fields: [interactionId], references: [id])
+  createdByUserId        String?
+  createdBy              User?         @relation("PromiseCreator", fields: [createdByUserId], references: [id])
+  ownerUserId            String?
+  amount                 Decimal       @db.Decimal(18, 2)
+  currency               String        @default("AZN")
+  deadline               DateTime
+  deadlineDate           DateTime      @db.Date
+  coveredLoanIds         String[]
+  coveredInstallmentIds  String[]
+  scopeDescription       String?
+  customerConfirmed      Boolean       @default(false)
+  status                 PromiseStatus @default(ACTIVE)
+  paidAmount             Decimal       @db.Decimal(18, 2) @default(0)
+  remainingAmount        Decimal       @db.Decimal(18, 2)
+  qualifyingWindowStart  DateTime
+  qualifyingWindowEnd    DateTime
+  settlementAllowanceDays Int          @default(2)
+  suppressionUntil       DateTime?
+  reminderPlan           Json?
+  policyVersionId        String?
+  cancelReason           String?
+  changeReason           String?
+  previousPromiseId      String?
+  maturedAt              DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  paymentLinks           PromisePaymentLink[]
+  events                 PromiseEvent[]
+
+  @@index([customerId, status])
+  @@index([deadlineDate, status])
+}
+
+model PromisePaymentLink {
+  id           String   @id @default(cuid())
+  promiseId    String
+  promise      Promise  @relation(fields: [promiseId], references: [id], onDelete: Cascade)
+  paymentId    String
+  payment      Payment  @relation(fields: [paymentId], references: [id])
+  amount       Decimal  @db.Decimal(18, 2)
+  reversed     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@unique([promiseId, paymentId])
+  @@unique([paymentId])
+}
+
+model PromiseEvent {
+  id          String   @id @default(cuid())
+  promiseId   String
+  promise     Promise  @relation(fields: [promiseId], references: [id], onDelete: Cascade)
+  type        String
+  fromStatus  PromiseStatus?
+  toStatus    PromiseStatus?
+  reason      String?
+  actorUserId String?
+  data        Json?
+  at          DateTime @default(now())
+}
+
+// ------------------------------------------------------------------
+// Support, disputes, arrangements, approvals, handover
+// ------------------------------------------------------------------
+
+enum SupportCaseType {
+  HARDSHIP
+  DISPUTE
+  COMPLAINT
+  SPECIAL_HANDLING
+  DECEASED_LEGAL
+}
+
+enum SupportCaseStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+model SupportCase {
+  id               String            @id @default(cuid())
+  customerId       String
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  caseId           String?
+  case             CollectionCase?   @relation(fields: [caseId], references: [id])
+  type             SupportCaseType
+  status           SupportCaseStatus @default(OPEN)
+  reason           String
+  restrictedDetails Json?
+  interactionId    String?
+  ownerUserId      String?
+  owner            User?             @relation("SupportOwner", fields: [ownerUserId], references: [id])
+  createdBy        String?
+  restrictionUntil DateTime?
+  restrictsCalls   Boolean           @default(true)
+  resolution       String?
+  slaDueAt         DateTime?
+  createdAt        DateTime          @default(now())
+  resolvedAt       DateTime?
+  arrangements     Arrangement[]
+
+  @@index([customerId, status])
+}
+
+enum ArrangementType {
+  TEMPORARY_PLAN
+  RESTRUCTURE
+}
+
+enum ArrangementStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+  APPROVED
+  REJECTED
+  SENT_TO_CORE
+  CORE_CONFIRMED
+  ACTIVE
+  FAILED
+}
+
+model Arrangement {
+  id             String            @id @default(cuid())
+  customerId     String
+  customer       Customer          @relation(fields: [customerId], references: [id])
+  caseId         String?
+  case           CollectionCase?   @relation(fields: [caseId], references: [id])
+  supportCaseId  String?
+  supportCase    SupportCase?      @relation(fields: [supportCaseId], references: [id])
+  type           ArrangementType
+  status         ArrangementStatus @default(DRAFT)
+  intake         Json
+  proposal       Json
+  comparison     Json?
+  reviewerUserId String?
+  approvalId     String?
+  coreReference  String?
+  createdBy      String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+enum ApprovalType {
+  MODEL_ACTIVATION
+  STRATEGY_ACTIVATION
+  POLICY_ACTIVATION
+  RECONCILIATION_DECISION
+  WAIVER
+  RESTRUCTURE
+  RESTRICTION_OVERRIDE
+  EXPORT
+  TEMPLATE_ACTIVATION
+  CAMPAIGN_RELEASE
+  HANDOVER
+  ROLLBACK
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INFO_REQUESTED
+  CANCELLED
+}
+
+model ApprovalRequest {
+  id                 String         @id @default(cuid())
+  type               ApprovalType
+  status             ApprovalStatus @default(PENDING)
+  makerUserId        String
+  maker              User           @relation("ApprovalMaker", fields: [makerUserId], references: [id])
+  checkerUserId      String?
+  checker            User?          @relation("ApprovalChecker", fields: [checkerUserId], references: [id])
+  objectType         String
+  objectId           String
+  title              String
+  rationale          String
+  beforeJson         Json?
+  afterJson          Json?
+  impactJson         Json?
+  evidenceJson       Json?
+  validationJson     Json?
+  proposedEffectiveAt DateTime?
+  rollbackTargetId   String?
+  decisionNote       String?
+  decidedAt          DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([status, type])
+}
+
+enum HandoverStatus {
+  DRAFT
+  REVIEW_REQUESTED
+  APPROVED
+  EXPORTED
+  ACCEPTED
+  RETURNED
+}
+
+model HandoverPacket {
+  id             String         @id @default(cuid())
+  caseId         String
+  case           CollectionCase @relation(fields: [caseId], references: [id])
+  status         HandoverStatus @default(DRAFT)
+  packet         Json
+  ownerUserId    String?
+  receivingTeam  String
+  deadline       DateTime?
+  approvalId     String?
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  returnReason   String?
+  createdBy      String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+// ------------------------------------------------------------------
+// Templates, campaigns, outbound messages
+// ------------------------------------------------------------------
+
+enum TemplateKind {
+  SMS
+  AGENT_SCRIPT
+  PTP_REMINDER
+  SUPPORT_SCRIPT
+  THIRD_PARTY_SCRIPT
+}
+
+model Template {
+  id            String        @id @default(cuid())
+  code          String
+  version       String
+  kind          TemplateKind
+  language      Language
+  status        VersionStatus @default(DRAFT)
+  title         String
+  body          Json
+  variables     String[]
+  channelScope  String[]
+  effectiveFrom DateTime?
+  approvedBy    String?
+  createdBy     String
+  createdAt     DateTime      @default(now())
+  campaigns     Campaign[]
+  messages      OutboundMessage[]
+
+  @@unique([code, version, language])
+}
+
+enum CampaignStatus {
+  DRAFT
+  REVIEWED
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Campaign {
+  id                String          @id @default(cuid())
+  code              String          @unique
+  name              String
+  kind              String
+  status            CampaignStatus  @default(DRAFT)
+  strategyVersionId String?
+  strategyVersion   StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  templateId        String?
+  template          Template?       @relation(fields: [templateId], references: [id])
+  audienceSnapshot  Json?
+  exclusions        Json?
+  scheduledAt       DateTime?
+  approverUserId    String?
+  approvalId        String?
+  requiredSkill     Seniority?
+  languages         Language[]
+  costEstimate      Decimal?        @db.Decimal(18, 2)
+  createdBy         String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  messages          OutboundMessage[]
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  UNKNOWN
+  CANCELLED
+  BLOCKED
+}
+
+model OutboundMessage {
+  id             String        @id @default(cuid())
+  dedupKey       String        @unique
+  campaignId     String?
+  campaign       Campaign?     @relation(fields: [campaignId], references: [id])
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  contactPointId String?
+  contactPoint   ContactPoint? @relation(fields: [contactPointId], references: [id])
+  templateId     String?
+  template       Template?     @relation(fields: [templateId], references: [id])
+  language       Language
+  body           String
+  status         MessageStatus @default(QUEUED)
+  blockReason    String?
+  providerRef    String?
+  requestedAt    DateTime      @default(now())
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  failureReason  String?
+
+  @@index([customerId, requestedAt])
+}
+
+// ------------------------------------------------------------------
+// Imports, integration events, outbox, jobs, provider events
+// ------------------------------------------------------------------
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATED
+  DRY_RUN
+  COMMITTED
+  FAILED
+  ROLLED_BACK
+}
+
+model ImportBatch {
+  id               String       @id @default(cuid())
+  dataset          String
+  fileName         String
+  checksum         String
+  status           ImportStatus @default(UPLOADED)
+  rowCount         Int          @default(0)
+  acceptedCount    Int          @default(0)
+  quarantinedCount Int          @default(0)
+  duplicateCount   Int          @default(0)
+  controlTotals    Json?
+  columnMapping    Json?
+  sourceAsOf       DateTime?
+  createdBy        String
+  createdAt        DateTime     @default(now())
+  committedAt      DateTime?
+  rolledBackAt     DateTime?
+  summary          Json?
+  issues           DataIssue[]
+
+  @@unique([dataset, checksum])
+}
+
+enum IssueSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model DataIssue {
+  id            String        @id @default(cuid())
+  importBatchId String?
+  importBatch   ImportBatch?  @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  severity      IssueSeverity
+  code          String
+  rowNumber     Int?
+  message       String
+  rowJson       Json?
+  status        String        @default("OPEN")
+  createdAt     DateTime      @default(now())
+}
+
+enum SourceHealth {
+  HEALTHY
+  DEGRADED
+  STALE
+  DISABLED
+  UNKNOWN
+}
+
+model SourceWatermark {
+  id                  String       @id @default(cuid())
+  sourceSystem        String       @unique
+  displayName         String
+  mode                String
+  health              SourceHealth @default(UNKNOWN)
+  lastSuccessfulRunAt DateTime?
+  sourceAsOf          DateTime?
+  lagSeconds          Int?
+  freshnessThresholdSeconds Int   @default(900)
+  queueDepth          Int          @default(0)
+  errorCount          Int          @default(0)
+  deadLetterCount     Int          @default(0)
+  schemaVersion       String       @default("1.0")
+  paused              Boolean      @default(false)
+  notes               String?
+  updatedAt           DateTime     @updatedAt
+}
+
+enum IntegrationEventStatus {
+  RECEIVED
+  PROCESSED
+  DUPLICATE
+  REJECTED
+  QUARANTINED
+  FAILED
+  SUPERSEDED
+}
+
+model IntegrationEvent {
+  id            String                 @id @default(cuid())
+  schemaVersion String
+  eventId       String
+  eventType     String
+  sourceSystem  String
+  sourceEventId String
+  sourceVersion String                 @default("1")
+  occurredAt    DateTime
+  receivedAt    DateTime               @default(now())
+  processedAt   DateTime?
+  businessDate  DateTime?              @db.Date
+  customerRef   String?
+  loanRef       String?
+  payload       Json
+  status        IntegrationEventStatus @default(RECEIVED)
+  resultJson    Json?
+  errorMessage  String?
+  correlationId String?
+  replayOfId    String?
+
+  @@unique([sourceSystem, sourceEventId, eventType])
+  @@index([status, receivedAt])
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+  DEAD
+}
+
+model OutboxMessage {
+  id             String       @id @default(cuid())
+  topic          String
+  idempotencyKey String       @unique
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(5)
+  nextAttemptAt  DateTime     @default(now())
+  lastError      String?
+  correlationId  String?
+  createdAt      DateTime     @default(now())
+  processedAt    DateTime?
+
+  @@index([status, nextAttemptAt])
+}
+
+model JobRun {
+  id         String    @id @default(cuid())
+  name       String
+  status     RunStatus
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  detail     Json?
+  error      String?
+
+  @@index([name, startedAt])
+}
+
+model WorkerHeartbeat {
+  id         String   @id
+  hostname   String
+  startedAt  DateTime @default(now())
+  lastSeenAt DateTime
+  version    String?
+}
+
+enum ProviderEventStatus {
+  RECEIVED
+  APPLIED
+  DUPLICATE
+  IGNORED
+  FAILED
+}
+
+model ProviderEvent {
+  id                     String              @id @default(cuid())
+  provider               String
+  providerEventId        String
+  eventType              String
+  providerAgentRef       String?
+  providerInteractionRef String?
+  correlationId          String?
+  sequence               Int?
+  occurredAt             DateTime
+  receivedAt             DateTime            @default(now())
+  processedAt            DateTime?
+  payload                Json
+  status                 ProviderEventStatus @default(RECEIVED)
+  note                   String?
+
+  @@unique([provider, providerEventId])
+  @@index([correlationId])
+}
+
+enum ReceiptStatus {
+  REQUESTED
+  CONFIRMED
+  REJECTED
+  UNKNOWN
+}
+
+model CommandReceipt {
+  id             String        @id @default(cuid())
+  provider       String
+  commandType    String
+  idempotencyKey String        @unique
+  status         ReceiptStatus @default(REQUESTED)
+  requestJson    Json
+  responseJson   Json?
+  correlationId  String?
+  actorUserId    String?
+  requestedAt    DateTime      @default(now())
+  resolvedAt     DateTime?
+  attempts       Int           @default(1)
+
+  @@index([correlationId])
+}
+
+// ------------------------------------------------------------------
+// Exceptions, audit, settings, misc
+// ------------------------------------------------------------------
+
+enum ExceptionType {
+  CLAIMED_ALREADY_PAID
+  UNMATCHED_PAYMENT
+  REVERSED_PAYMENT
+  STALE_BALANCES
+  STALE_FEATURES
+  MISSING_MODEL_INPUT
+  WRONG_NUMBER
+  DUPLICATE_CIF
+  DISPUTE
+  EXPIRED_POLICY_OR_MODEL
+  SOURCE_MISMATCH
+  HANDOVER_FAILURE
+  SCHEDULE_MISMATCH
+  PROVIDER_WRAPUP_FAILURE
+  WITHDRAWAL_UNACKNOWLEDGED
+  SENIOR_CAPACITY_OVERFLOW
+  SCREEN_POP_DELAY
+  SUPPRESSION_SYNC_FAILURE
+}
+
+enum ExceptionStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+  REOPENED
+}
+
+model ExceptionCase {
+  id               String          @id @default(cuid())
+  dedupKey         String          @unique
+  type             ExceptionType
+  severity         IssueSeverity   @default(WARNING)
+  customerId       String?
+  customer         Customer?       @relation(fields: [customerId], references: [id])
+  caseId           String?
+  case             CollectionCase? @relation(fields: [caseId], references: [id])
+  loanId           String?
+  loan             Loan?           @relation(fields: [loanId], references: [id])
+  paymentId        String?
+  payment          Payment?        @relation(fields: [paymentId], references: [id])
+  title            String
+  evidence         Json?
+  affectedOutreach Json?
+  status           ExceptionStatus @default(OPEN)
+  ownerUserId      String?
+  owner            User?           @relation("ExceptionOwner", fields: [ownerUserId], references: [id])
+  slaDueAt         DateTime?
+  firstSeenAt      DateTime        @default(now())
+  lastSeenAt       DateTime        @default(now())
+  occurrences      Int             @default(1)
+  resolution       String?
+  resolvedBy       String?
+  resolvedAt       DateTime?
+
+  @@index([status, severity])
+  @@index([customerId])
+}
+
+model AuditEvent {
+  id               String   @id @default(cuid())
+  at               DateTime @default(now())
+  actorUserId      String?
+  actorService     String?
+  action           String
+  objectType       String
+  objectId         String?
+  customerId       String?
+  caseId           String?
+  reason           String?
+  changes          Json?
+  versionIds       Json?
+  sourceEventId    String?
+  correlationId    String?
+  ip               String?
+  blocked          Boolean  @default(false)
+
+  @@index([customerId, at])
+  @@index([action, at])
+  @@index([actorUserId, at])
+}
+
+enum Provenance {
+  SOURCE_BASED
+  DEMO_ASSUMPTION
+  BANK_APPROVED
+}
+
+model Setting {
+  key           String     @id
+  group         String
+  value         Json
+  provenance    Provenance @default(DEMO_ASSUMPTION)
+  owner         String     @default("collections-product")
+  version       Int        @default(1)
+  effectiveFrom DateTime?
+  description   String
+  editableRoles Role[]
+  updatedBy     String?
+  updatedAt     DateTime   @updatedAt
+}
+
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  screen    String
+  name      String
+  filters   Json
+  createdAt DateTime @default(now())
+
+  @@unique([userId, screen, name])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  message   String
+  link      String?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([userId, readAt])
+}
+
+model ExperimentAssignment {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  experiment String
+  arm        String
+  assignedAt DateTime @default(now())
+
+  @@unique([customerId, experiment])
+}
+
+model MetricDefinition {
+  code        String   @id
+  name        String
+  numerator   String
+  denominator String
+  scope       String
+  unit        String
+  version     String
+  asOf        DateTime @db.Date
+  notes       String?
+}

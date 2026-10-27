@@ -1,0 +1,30 @@
+{
+  "name": "ATB Collections theme",
+  "verified_date": "2026-10-28",
+  "source_website": "https://atb.az/",
+  "source_stylesheet": "https://atb.az/wp-content/themes/atb-theme/assets/css/style.css",
+  "source_logo": "https://atb.az/wp-content/uploads/2023/01/logo.svg",
+  "source_media_page": "https://atb.az/media/",
+  "provenance": "Purple #6F0BBB and yellow #F4C900 are from the public site CSS. Dark purple #34035D and lavender #F8F0FE also appear in the stylesheet. Other operational tokens are application design choices, not a formal ATB brand manual. Preserve the supplied SVG unchanged; its own fill is #6F0BB5.",
+  "colors": {
+    "brand-purple": "#6F0BBB",
+    "brand-purple-dark": "#34035D",
+    "brand-purple-light": "#F8F0FE",
+    "brand-yellow": "#F4C900",
+    "brand-yellow-hover": "#E4BB00",
+    "brand-yellow-light": "#FDFBF0",
+    "surface": "#FFFFFF",
+    "background": "#F7F7F7",
+    "foreground": "#251631",
+    "muted-foreground": "#6B6277",
+    "border": "#E4DDEC",
+    "success": "#16794B",
+    "success-background": "#EAF6EF",
+    "warning": "#92621D",
+    "warning-background": "#FFF3DC",
+    "danger": "#A43649",
+    "danger-background": "#FBEBEF",
+    "information": "#336EAC",
+    "information-background": "#EAF1F9"
+  }
+}

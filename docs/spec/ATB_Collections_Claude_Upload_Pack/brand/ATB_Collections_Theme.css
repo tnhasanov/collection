@@ -1,0 +1,51 @@
+/* ATB Collections - verified website palette, 28 October 2026.
+   Sources: https://atb.az/ and https://atb.az/media/
+   Operational status and neutral tokens are application choices. */
+:root {
+  --atb-brand-purple: #6F0BBB;
+  --atb-brand-purple-dark: #34035D;
+  --atb-brand-purple-light: #F8F0FE;
+  --atb-brand-yellow: #F4C900;
+  --atb-brand-yellow-hover: #E4BB00;
+  --atb-brand-yellow-light: #FDFBF0;
+  --atb-surface: #FFFFFF;
+  --atb-background: #F7F7F7;
+  --atb-foreground: #251631;
+  --atb-muted-foreground: #6B6277;
+  --atb-border: #E4DDEC;
+  --atb-success: #16794B;
+  --atb-success-background: #EAF6EF;
+  --atb-warning: #92621D;
+  --atb-warning-background: #FFF3DC;
+  --atb-danger: #A43649;
+  --atb-danger-background: #FBEBEF;
+  --atb-information: #336EAC;
+  --atb-information-background: #EAF1F9;
+  --atb-primary: var(--atb-brand-yellow);
+  --atb-primary-foreground: var(--atb-brand-purple-dark);
+  --atb-secondary: var(--atb-brand-purple);
+  --atb-secondary-foreground: #FFFFFF;
+  --atb-navigation: var(--atb-brand-purple-dark);
+  --atb-navigation-active: var(--atb-brand-purple);
+  --atb-selection: var(--atb-brand-purple-light);
+  --atb-focus-ring: var(--atb-brand-purple);
+}
+.atb-app { color: var(--atb-foreground); background: var(--atb-background); }
+.atb-sidebar { background: var(--atb-navigation); color: #FFFFFF; }
+.atb-sidebar [aria-current="page"] {
+  background: var(--atb-navigation-active); color: #FFFFFF;
+  box-shadow: inset 4px 0 0 var(--atb-brand-yellow);
+}
+.atb-primary-button {
+  background: var(--atb-primary); color: var(--atb-primary-foreground);
+  border: 1px solid var(--atb-primary);
+}
+.atb-primary-button:hover { background: var(--atb-brand-yellow-hover); }
+.atb-primary-button:focus-visible { outline: 3px solid var(--atb-focus-ring); outline-offset: 3px; }
+.atb-secondary-button { background: var(--atb-secondary); color: #FFFFFF; }
+.atb-link { color: var(--atb-brand-purple); }
+.atb-selected-row { background: var(--atb-selection); }
+.atb-success { color: var(--atb-success); background: var(--atb-success-background); }
+.atb-warning { color: var(--atb-warning); background: var(--atb-warning-background); }
+.atb-danger { color: var(--atb-danger); background: var(--atb-danger-background); }
+/* Hang up / destructive actions use the danger pairing, not the yellow CTA. */
