@@ -72,3 +72,24 @@ export const DRAFT_ROLL_RATES: Record<"DPD_11_16" | "DPD_17_23" | "DPD_24_30", s
   DPD_17_23: "0.269",
   DPD_24_30: "0.337",
 };
+
+/** Golden cases: one per leaf plus boundary checks; a candidate package must reproduce them before activation. */
+export const GOLDEN_CASES: { name: string; features: Record<string, number | null>; expectedClass: number | null; expectedReason?: string }[] = (() => {
+  const base: Record<string, number | null> = { DPD_MAX_MAX12: 5, DPD_RATIO_ADJ_MAX12: 0.05, DPD_RATIO_ADJ_V3LM: 0, DPD30_ADJ100_CNT_L6M: 0, DPD_RATIO_ADJ_VLM: 0.1 };
+  const cases: { name: string; features: Record<string, number | null>; expectedClass: number | null; expectedReason?: string }[] = [
+    { name: "Class 1 (max DPD ≤ 7, ratio > 0.025)", features: { ...base, DPD_MAX_MAX12: 5, DPD_RATIO_ADJ_MAX12: 0.05 }, expectedClass: 1 },
+    { name: "Class 2 (7 < max DPD ≤ 30, ratio > 0.03)", features: { ...base, DPD_MAX_MAX12: 20, DPD_RATIO_ADJ_MAX12: 0.05 }, expectedClass: 2 },
+    { name: "Class 3 (max DPD ≤ 30, ratio ≤ 0.025)", features: { ...base, DPD_MAX_MAX12: 20, DPD_RATIO_ADJ_MAX12: 0.01 }, expectedClass: 3 },
+    { name: "Class 4 (7 < max DPD ≤ 30, 0.025 < ratio ≤ 0.03)", features: { ...base, DPD_MAX_MAX12: 20, DPD_RATIO_ADJ_MAX12: 0.028 }, expectedClass: 4 },
+    { name: "Class 5 (max DPD > 30, V3LM > -0.4, cnt ≤ 1, VLM ≤ 0.2)", features: { ...base, DPD_MAX_MAX12: 45, DPD30_ADJ100_CNT_L6M: 1, DPD_RATIO_ADJ_VLM: 0.1 }, expectedClass: 5 },
+    { name: "Class 6 (… VLM > 0.2)", features: { ...base, DPD_MAX_MAX12: 45, DPD30_ADJ100_CNT_L6M: 1, DPD_RATIO_ADJ_VLM: 0.3 }, expectedClass: 6 },
+    { name: "Class 7 (max DPD > 30, V3LM > -0.4, cnt > 1)", features: { ...base, DPD_MAX_MAX12: 45, DPD30_ADJ100_CNT_L6M: 2 }, expectedClass: 7 },
+    { name: "Class 8 (max DPD > 30, V3LM ≤ -0.4)", features: { ...base, DPD_MAX_MAX12: 45, DPD_RATIO_ADJ_V3LM: -0.5 }, expectedClass: 8 },
+    { name: "Boundary: max DPD exactly 7 → class 1", features: { ...base, DPD_MAX_MAX12: 7, DPD_RATIO_ADJ_MAX12: 0.05 }, expectedClass: 1 },
+    { name: "Boundary: max DPD exactly 30 with ratio 0.03 → class 4", features: { ...base, DPD_MAX_MAX12: 30, DPD_RATIO_ADJ_MAX12: 0.03 }, expectedClass: 4 },
+    { name: "Boundary: V3LM exactly -0.4 → class 8", features: { ...base, DPD_MAX_MAX12: 31, DPD_RATIO_ADJ_V3LM: -0.4 }, expectedClass: 8 },
+    { name: "Missing feature on the path → Unscored", features: { ...base, DPD_MAX_MAX12: 45, DPD_RATIO_ADJ_V3LM: null }, expectedClass: null, expectedReason: "MISSING_PATH_INPUT" },
+    { name: "Alias DPD_30_ADJ100_CNT_L6M accepted", features: { DPD_MAX_MAX12: 45, DPD_RATIO_ADJ_MAX12: 0.05, DPD_RATIO_ADJ_V3LM: 0, DPD_30_ADJ100_CNT_L6M: 2, DPD_RATIO_ADJ_VLM: 0.1 }, expectedClass: 7 },
+  ];
+  return cases;
+})();

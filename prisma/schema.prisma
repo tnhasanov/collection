@@ -618,6 +618,8 @@ model StrategyVersion {
   activatedAt DateTime?
   retiredAt   DateTime?
   notes       String?
+  simulationJson Json?
+  simulatedAt DateTime?
   createdAt   DateTime      @default(now())
   decisions   DecisionSnapshot[]
   campaigns   Campaign[]
@@ -1429,6 +1431,7 @@ model ImportBatch {
   committedAt      DateTime?
   rolledBackAt     DateTime?
   summary          Json?
+  payloadJson      Json?
   issues           DataIssue[]
 
   @@unique([dataset, checksum])
