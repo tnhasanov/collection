@@ -44,6 +44,7 @@ const MANAGEMENT_NAV: NavGroup[] = [
       { href: "/analytics", labelKey: "nav.analytics", screen: "S18", permission: "analytics.read" },
       { href: "/arrangements", labelKey: "nav.arrangements", screen: "S10", permission: "arrangement.review" },
       { href: "/recovery", labelKey: "nav.recovery", screen: "S26", permission: "recovery.manage" },
+      { href: "/self-service", labelKey: "nav.selfService", screen: "S27", permission: "analytics.read" },
     ],
   },
   {

@@ -2,6 +2,8 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { releaseWorkItem, refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 import { maturePromises } from "@/server/modules/promises/promiseService";
 import { appendAudit } from "@/server/modules/audit/audit";
+import { getOutboundControls } from "@/server/modules/settings/settingsService";
+import { renderTemplate, templateText, variablesForCustomer } from "@/server/modules/templates/templateService";
 
 /** DEMO mock inbound sync: the core/payment feeds "refresh" every few minutes so freshness stays within threshold. */
 export async function refreshMockSources(prisma: PrismaClient, now: Date) {
@@ -46,31 +48,42 @@ export async function runPromiseMaturation(prisma: PrismaClient, now: Date) {
   return results;
 }
 
-/** Digital reminders: queue approved SMS for DIGITAL_REMINDER work items under the running SMS campaign (local outbox only). */
-export async function dispatchDigitalReminders(prisma: PrismaClient, now: Date, evaluate: (customerId: string) => Promise<{ eligible: boolean; reasonCodes: string[]; contactPointId: string | null }>) {
-  const campaign = await prisma.campaign.findFirst({ where: { code: "SMS_REMINDER_DAILY", status: "RUNNING" } });
-  if (!campaign) return { queued: 0, blocked: 0 };
-  const items = await prisma.workItem.findMany({ where: { type: "DIGITAL_REMINDER", status: "ELIGIBLE" }, include: { customer: { include: { loans: true } } }, take: 50 });
+/**
+ * Digital reminders: for every RUNNING SMS campaign whose schedule has arrived, queue approved SMS for the
+ * campaign's audience (ELIGIBLE DIGITAL_REMINDER work items of the approved strategy population). Balance
+ * freshness and contact policy are re-checked per message at dispatch; the demo writes to the local outbound
+ * log only. One message per campaign, customer and day (deterministic dedup key).
+ */
+export async function dispatchDigitalReminders(prisma: PrismaClient, now: Date, evaluate: (customerId: string, campaignCode: string) => Promise<{ eligible: boolean; reasonCodes: string[]; contactPointId: string | null }>) {
+  const controls = await getOutboundControls(prisma);
+  if (controls.killSwitch || controls.pausedChannels.includes("SMS")) return { queued: 0, blocked: 0, skipped: "KILL_SWITCH_OR_CHANNEL_PAUSED" };
+  const campaigns = await prisma.campaign.findMany({ where: { kind: "SMS", status: { in: ["RUNNING", "SCHEDULED"] } }, include: { template: true } });
   let queued = 0;
   let blocked = 0;
-  for (const wi of items) {
-    const key = `SMS_REMINDER_DAILY:${wi.customerId}:${now.toISOString().slice(0, 10)}`;
-    const exists = await prisma.outboundMessage.findUnique({ where: { dedupKey: key } });
-    if (exists) continue;
-    const check = await evaluate(wi.customerId);
-    const template = await prisma.template.findFirst({ where: { code: "SMS-REMINDER-01", status: "ACTIVE", language: wi.customer.language } });
-    const overdue = wi.customer.loans.reduce((s, l) => s + Number(l.totalOverdue), 0).toFixed(2);
-    const oldest = wi.customer.loans.map((l) => l.oldestUnpaidDueDate).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0];
-    const body = String((template?.body as { text?: string } | null)?.text ?? "ATB reminder").replace("{{overdueAmount}}", overdue).replace("{{oldestDueDate}}", oldest ? oldest.toISOString().slice(0, 10) : "");
-    if (!check.eligible || !check.contactPointId) {
-      await prisma.outboundMessage.create({ data: { dedupKey: key, campaignId: campaign.id, customerId: wi.customerId, contactPointId: check.contactPointId, templateId: template?.id, language: wi.customer.language, body, status: "BLOCKED", blockReason: check.reasonCodes.join(",") } });
-      blocked++;
-      continue;
+  for (const campaign of campaigns) {
+    if (campaign.scheduledAt && campaign.scheduledAt > now) continue;
+    if (campaign.status === "SCHEDULED") await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "RUNNING" } });
+    if (controls.pausedCampaigns.includes(campaign.code)) continue;
+    if (!campaign.template || campaign.template.status !== "ACTIVE") continue;
+    const items = await prisma.workItem.findMany({ where: { type: "DIGITAL_REMINDER", status: "ELIGIBLE" }, include: { customer: { include: { loans: true } } }, take: 50 });
+    for (const wi of items) {
+      if (!campaign.languages.includes(wi.customer.language)) continue;
+      const key = `${campaign.code}:${wi.customerId}:${now.toISOString().slice(0, 10)}`;
+      const exists = await prisma.outboundMessage.findUnique({ where: { dedupKey: key } });
+      if (exists) continue;
+      const check = await evaluate(wi.customerId, campaign.code);
+      const template = (await prisma.template.findFirst({ where: { code: campaign.template.code, status: "ACTIVE", language: wi.customer.language } })) ?? (await prisma.template.findFirst({ where: { code: campaign.template.code, status: "ACTIVE", language: "AZ" } })) ?? campaign.template;
+      const body = renderTemplate(templateText(template.body), await variablesForCustomer(prisma, wi.customerId));
+      if (!check.eligible || !check.contactPointId) {
+        await prisma.outboundMessage.create({ data: { dedupKey: key, campaignId: campaign.id, customerId: wi.customerId, contactPointId: check.contactPointId, templateId: template.id, language: template.language, body, status: "BLOCKED", blockReason: check.reasonCodes.join(",") } });
+        blocked++;
+        continue;
+      }
+      const msg = await prisma.outboundMessage.create({ data: { dedupKey: key, campaignId: campaign.id, customerId: wi.customerId, contactPointId: check.contactPointId, templateId: template.id, language: template.language, body, status: "QUEUED" } });
+      await prisma.outboxMessage.create({ data: { topic: "sms.send", idempotencyKey: `sms:${msg.id}`, payload: { outboundMessageId: msg.id } as never } });
+      await prisma.workItem.update({ where: { id: wi.id }, data: { status: "COMPLETED", completedAt: now, reason: `SMS reminder queued (${campaign.code}, local outbox)` } });
+      queued++;
     }
-    const msg = await prisma.outboundMessage.create({ data: { dedupKey: key, campaignId: campaign.id, customerId: wi.customerId, contactPointId: check.contactPointId, templateId: template?.id, language: wi.customer.language, body, status: "QUEUED" } });
-    await prisma.outboxMessage.create({ data: { topic: "sms.send", idempotencyKey: `sms:${msg.id}`, payload: { outboundMessageId: msg.id } as never } });
-    await prisma.workItem.update({ where: { id: wi.id }, data: { status: "COMPLETED", completedAt: now, reason: "SMS reminder queued (local outbox)" } });
-    queued++;
   }
   return { queued, blocked };
 }

@@ -86,8 +86,8 @@ async function main() {
 
   await boss.work(QUEUES.sms, { batchSize: 1 }, async () => {
     const now = (await getClock()).now();
-    const r = await dispatchDigitalReminders(prisma, now, async (customerId) => {
-      const e = await evaluateCustomerEligibility(prisma, customerId, { channel: "SMS", now, campaignCode: "SMS_REMINDER_DAILY" });
+    const r = await dispatchDigitalReminders(prisma, now, async (customerId, campaignCode) => {
+      const e = await evaluateCustomerEligibility(prisma, customerId, { channel: "SMS", now, campaignCode });
       return { eligible: e.decision.eligible, reasonCodes: e.decision.reasonCodes, contactPointId: e.contactPointId };
     });
     if (r.queued || r.blocked) console.log(`[sms] queued ${r.queued} blocked ${r.blocked}`);
