@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Field, Input, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Field, Select, Textarea } from "@/components/ui";
 
 interface Dataset { code: string; label: string; critical: boolean; keyColumns: string[]; rollback: string; columns: { name: string; required: boolean; type: string; description: string; synonyms: string[]; enum: string[] | null }[] }
 type Step = 1 | 2 | 3 | 4 | 5 | 6;

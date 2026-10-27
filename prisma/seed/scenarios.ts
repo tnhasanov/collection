@@ -1,8 +1,8 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { Rng } from "./rng";
-import { createCustomer, createFeatureSnapshot, createLoan, featuresForClass, phoneFor, BUSINESS_DATE, SEED_NOW } from "./portfolio";
+import { createCustomer, createFeatureSnapshot, createLoan, featuresForClass, BUSINESS_DATE, SEED_NOW } from "./portfolio";
 import { addDays, bakuDateTime, bakuEndOfDay, toDbDate } from "@/server/dates";
-import { toDbMoney, dec } from "@/server/money";
+import { dec } from "@/server/money";
 import { randomUUID } from "node:crypto";
 
 type TechnicalResult = "ANSWERED" | "NO_ANSWER" | "BUSY" | "UNREACHABLE" | "FAILED" | "MACHINE";
@@ -102,7 +102,6 @@ export async function seedHistoricalCall(prisma: PrismaClient, p: { customerId: 
 
 export async function seedScenarios(prisma: PrismaClient, rng: Rng) {
   const t = (iso: string, hm: string) => bakuDateTime(iso, hm);
-  const yesterday = addDays(BUSINESS_DATE, -1);
 
   // 001 - hero: 10,000 / 18% / 24, first installment 20 Oct unpaid → DPD 7, class 8, ERA 4,200 (bucket 10 expected).
   await createCustomer(prisma, { id: "C-DEMO-001", name: "Demo customer 001", branch: "Baku-Nasimi", language: "AZ", phone: "+994501000001" });

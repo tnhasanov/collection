@@ -24,7 +24,8 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   ]);
   const lagMin = feed?.sourceAsOf ? Math.round((current.getTime() - feed.sourceAsOf.getTime()) / 60_000) : null;
   const freshness = !feed || feed.health === "DISABLED" ? { label: "Source: n/a", tone: "warning" as const } : lagMin !== null && lagMin > (feed.freshnessThresholdSeconds / 60) ? { label: `Source stale (${lagMin} min)`, tone: "danger" as const } : { label: `Source refreshed ${formatBakuTime(feed.sourceAsOf)}`, tone: "success" as const };
-  const workerOnline = !!worker && Date.now() - worker.lastSeenAt.getTime() < 60_000;
+  const wallClock = new Date();
+  const workerOnline = !!worker && wallClock.getTime() - worker.lastSeenAt.getTime() < 60_000;
   return (
     <div className="flex min-h-screen">
       <Sidebar groups={navForRole(user.role)} locale="en" />

@@ -1,0 +1,22 @@
+# Local PostgreSQL for the ATB Collections demo (no secrets: local-only credentials).
+# Usage: docker compose up -d  →  cp .env.example .env  →  npm run db:migrate && npm run db:seed
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: atb_collections
+    ports:
+      - "5432:5432"
+    volumes:
+      - atb_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  # The integration tests use a second database on the same server; create it once:
+  #   docker compose exec postgres psql -U postgres -c 'CREATE DATABASE atb_collections_test;'
+volumes:
+  atb_pg: {}

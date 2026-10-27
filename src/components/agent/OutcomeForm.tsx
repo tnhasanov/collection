@@ -63,9 +63,10 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, compact, serverNo
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const idKey = useRef<string>(`${interaction.id}-${Math.random().toString(36).slice(2, 10)}`);
+  const idKey = useRef<string | null>(null);
 
   const set = (patch: Partial<OutcomeDraft>) => {
+    setSaveState("saving");
     const next = { ...draft, ...patch };
     if (patch.identityStatus && !allowedOutcomes(patch.identityStatus).includes(next.businessOutcome ?? "")) next.businessOutcome = allowedOutcomes(patch.identityStatus)[0];
     onChange(next);
@@ -75,7 +76,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, compact, serverNo
   useEffect(() => {
     if (interaction.status === "SAVED" || interaction.status === "CORRECTED") return;
     if (timer.current) clearTimeout(timer.current);
-    setSaveState("saving");
+    if (!idKey.current) idKey.current = `${interaction.id}-${Math.random().toString(36).slice(2, 10)}`;
     timer.current = setTimeout(async () => {
       const r = await api(`/api/agent/interactions/${interaction.id}/draft`, { ...draft, idempotencyKey: idKey.current });
       setSaveState(r.ok ? "saved" : "error");

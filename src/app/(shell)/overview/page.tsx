@@ -31,7 +31,7 @@ export default async function OverviewPage() {
         <Kpi label="Received today" value={formatAzn(m.kpis.receivedToday, { withCurrency: false })} note="AZN - net of posted reversals" href="/payments" />
         <Kpi label="PTPs due today" value={m.kpis.ptpDueToday} note="Commitments reaching their deadline" href="/promises?view=due-today" />
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-[3fr_2fr]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[3fr_2fr]">
         <Card title="Delinquency distribution" subtitle="Customer count and principal exposure by operational DPD band (one customer counted once, by max DPD)">
           <ul className="space-y-1.5">
             {m.distribution.map((d) => (
@@ -69,7 +69,7 @@ export default async function OverviewPage() {
           </dl>
         </Card>
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-[3fr_2fr]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[3fr_2fr]">
         <Card title="Priority customers - common ERA ranking" subtitle="Highest-priority customers; eligibility is shown, never bypassed" padded={false}>
           <table className="table-dense">
             <thead>

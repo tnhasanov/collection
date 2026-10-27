@@ -170,7 +170,7 @@ export function CustomerTabs({ data, initialTab }: { data: Data; initialTab: str
             </tbody>
           </table>
         )}
-        {tab === "documents" && <p className="text-muted">No documents are attached in the synthetic demo. Document storage requires the bank's approved repository integration (INTEGRATION_MAPPING.md).</p>}
+        {tab === "documents" && <p className="text-muted">No documents are attached in the synthetic demo. Document storage requires the bank&apos;s approved repository integration (INTEGRATION_MAPPING.md).</p>}
         {tab === "support" && (
           <div className="space-y-2">
             {data.restrictions.openDisputes.length === 0 && data.restrictions.supportCases.length === 0 && data.restrictions.paidClaims.length === 0 && <p className="text-muted">No open support cases, disputes or claims.</p>}

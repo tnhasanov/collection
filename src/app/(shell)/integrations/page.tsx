@@ -28,7 +28,8 @@ export default async function IntegrationsPage() {
     getDialerAdapter().capabilities(),
   ]);
   const canOperate = hasPermission(user.role, "integration.operate");
-  const workerOnline = !!worker && Date.now() - worker.lastSeenAt.getTime() < 60000;
+  const wallClock = new Date();
+  const workerOnline = !!worker && wallClock.getTime() - worker.lastSeenAt.getTime() < 60000;
   const count = (s: string) => outbox.find((o) => o.status === s)?._count._all ?? 0;
   const feed = sources.find((s) => s.sourceSystem === "PAYMENT_FEED");
   const lag = feed?.sourceAsOf ? Math.round((t.getTime() - feed.sourceAsOf.getTime()) / 60000) : null;

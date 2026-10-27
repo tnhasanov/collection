@@ -35,33 +35,28 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
     return () => clearInterval(id);
   }, []);
   // Hydrate the recoverable draft from the backend when a new interaction appears (refresh/reconnect safe).
-  useEffect(() => {
-    const i = ctx?.interaction;
-    if (!i) {
-      if (draftFor) {
-        setDraftFor(null);
-        setDraft({});
-        setPreview(null);
-      }
-      return;
-    }
-    if (i.id !== draftFor) {
-      setDraftFor(i.id);
-      setDraft((i.draft as OutcomeDraft | null) ?? {});
-      setPreview(null);
-    }
-  }, [ctx?.interaction, draftFor]);
+  // (React "adjust state when a prop changes" pattern: runs during render, no effect needed.)
+  const currentInteraction = ctx?.interaction ?? null;
+  if ((currentInteraction?.id ?? null) !== draftFor) {
+    setDraftFor(currentInteraction?.id ?? null);
+    setDraft((currentInteraction?.draft as OutcomeDraft | null) ?? {});
+    setPreview(null);
+  }
   useEffect(() => {
     if (!toast) return;
     const id = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(id);
   }, [toast]);
-  const notifications = ctx?.notifications ?? [];
+  const latestNotification = ctx?.notifications?.[0] ?? null;
+  const [notifiedId, setNotifiedId] = useState<string | null>(null);
+  if (latestNotification && latestNotification.id !== notifiedId) {
+    setNotifiedId(latestNotification.id);
+    setToast({ message: latestNotification.message, tone: "info" });
+  }
   useEffect(() => {
-    if (notifications.length === 0) return;
-    setToast({ message: notifications[0].message, tone: "info" });
+    if (!latestNotification) return;
     void fetch("/api/agent/notifications/read", { method: "POST" });
-  }, [notifications]);
+  }, [latestNotification]);
 
   const session = ctx?.session ?? null;
   const reservation = ctx?.reservation ?? null;

@@ -21,9 +21,10 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "tsx scripts/db-reset.ts",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "screenshots": "node e2e/screenshots.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

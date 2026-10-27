@@ -36,7 +36,7 @@ export function CreateCallbackButton() {
   const [form, setForm] = useState({ local: "", customerRequested: true, ownerMode: "ME", reason: "" });
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!q.trim()) return setHits([]);
+    if (!q.trim()) return;
     const id = setTimeout(async () => { const r = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`); const j = await r.json(); if (j.ok) setHits(j.data.rows); }, 300);
     return () => clearTimeout(id);
   }, [q]);
@@ -46,7 +46,7 @@ export function CreateCallbackButton() {
       <Dialog open={open} onClose={() => setOpen(false)} title="Create callback (policy-controlled)">
         <Field label="Customer" htmlFor="cb-q"><Input id="cb-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer" /></Field>
         <ul className="mb-2 max-h-32 overflow-auto divide-y divide-line">
-          {hits.map((h) => (<li key={h.id}><button type="button" className={`w-full py-1 text-left text-sm hover:bg-brand-light ${customerId === h.id ? "bg-brand-light" : ""}`} onClick={() => setCustomerId(h.id)}>{h.displayName} · {h.cif}</button></li>))}
+          {(q.trim() ? hits : []).map((h) => (<li key={h.id}><button type="button" className={`w-full py-1 text-left text-sm hover:bg-brand-light ${customerId === h.id ? "bg-brand-light" : ""}`} onClick={() => setCustomerId(h.id)}>{h.displayName} · {h.cif}</button></li>))}
         </ul>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Local time (Asia/Baku)" htmlFor="cb-time" required><Input id="cb-time" type="datetime-local" value={form.local} onChange={(e) => setForm({ ...form, local: e.target.value })} /></Field>

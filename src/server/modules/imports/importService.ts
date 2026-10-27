@@ -173,7 +173,8 @@ export async function commitImport(prisma: PrismaClient, batchId: string, userId
         const d = r.data;
         const existing = await prisma.customer.findUnique({ where: { id: String(d.customer_id) } });
         await prisma.customer.upsert({ where: { id: String(d.customer_id) }, create: { id: String(d.customer_id), cif: String(d.cif), displayName: String(d.display_name), branch: String(d.branch), language: (d.language as "AZ" | "EN" | "RU") ?? "AZ", status: (d.status as "ACTIVE") ?? "ACTIVE", sourceSystem: `${IMPORT_SOURCE}:${batchId}`, sourceAsOf: new Date(String(d.source_as_of)) }, update: { displayName: String(d.display_name), branch: String(d.branch), ...(d.language ? { language: d.language as "AZ" | "EN" | "RU" } : {}), ...(d.status ? { status: d.status as "ACTIVE" } : {}), sourceAsOf: new Date(String(d.source_as_of)) } });
-        existing ? (result.updated = (result.updated as number) + 1) : (result.created = (result.created as number) + 1);
+        if (existing) result.updated = (result.updated as number) + 1;
+        else result.created = (result.created as number) + 1;
       }
       break;
     case "contacts":

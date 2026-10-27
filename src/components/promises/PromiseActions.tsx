@@ -18,7 +18,7 @@ export function CreatePromiseButton() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!q.trim()) return setHits([]);
+    if (!q.trim()) return;
     const id = setTimeout(async () => {
       const r = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`);
       const j = await r.json();
@@ -56,7 +56,7 @@ export function CreatePromiseButton() {
           <div>
             <Field label="Find customer" htmlFor="pp-q"><Input id="pp-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, id, CIF or loan" /></Field>
             <ul className="mt-2 divide-y divide-line">
-              {hits.map((h) => (
+              {(q.trim() ? hits : []).map((h) => (
                 <li key={h.id}>
                   <button type="button" className="w-full py-1.5 text-left text-sm hover:bg-brand-light" onClick={() => pick(h)}>
                     {h.displayName} · {h.cif} · DPD {h.maxDpd} · overdue {fmtAzn(h.totalOverdue)}
