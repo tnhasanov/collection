@@ -1,0 +1,2 @@
+core_loan_id,schedule_version,seq,due_date,principal_due,interest_due,fee_due,effective_from
+CORE-L-DEMO-001,v2,1,2026-10-20,349.24,150.00,0.00,2026-10-01

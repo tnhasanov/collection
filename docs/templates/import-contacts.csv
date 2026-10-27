@@ -1,0 +1,2 @@
+customer_id,type,value,is_primary,verification,preferred_window,source_as_of
+C-DEMO-001,MOBILE,'+994501234999,false,UNVERIFIED,18:00-20:00,2026-10-27T05:30:00+04:00

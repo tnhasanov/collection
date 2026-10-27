@@ -1,0 +1,2 @@
+core_loan_id,as_of,principal_outstanding,overdue_principal,overdue_interest,dpd,balance_version
+CORE-L-DEMO-018,2026-10-27T05:30:00+04:00,4100.00,190.00,61.50,9,7

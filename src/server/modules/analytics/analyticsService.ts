@@ -56,7 +56,10 @@ async function metricDefs(db: Db, codes: string[]): Promise<RatioDef[]> {
 }
 
 function window(filters: AnalyticsFilters, now: Date) {
-  const to = filters.to ? DateTime.fromISO(filters.to, { zone: BAKU_ZONE }).endOf("day") : DateTime.fromJSDate(now, { zone: BAKU_ZONE }).endOf("day");
+  // Default window ends at the later of the app clock and the wall clock so rows stamped by the database
+  // (createdAt = wall clock) are not excluded when the demo clock is offset.
+  const latest = new Date(Math.max(now.getTime(), Date.now()));
+  const to = filters.to ? DateTime.fromISO(filters.to, { zone: BAKU_ZONE }).endOf("day") : DateTime.fromJSDate(latest, { zone: BAKU_ZONE }).endOf("day");
   const from = filters.from ? DateTime.fromISO(filters.from, { zone: BAKU_ZONE }).startOf("day") : to.minus({ days: 30 }).startOf("day");
   return { from: from.toJSDate(), to: to.toJSDate(), label: `${from.toISODate()} → ${to.toISODate()}` };
 }

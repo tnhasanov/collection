@@ -1,0 +1,2 @@
+customer_id,cif,display_name,branch,language,status,source_as_of
+C-IMP-001,CIF-IMP-001,Import Test Customer,Baku-Central,AZ,ACTIVE,2026-10-27T05:30:00+04:00

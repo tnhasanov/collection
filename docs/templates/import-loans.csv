@@ -1,0 +1,2 @@
+core_loan_id,customer_id,principal_original,nominal_annual_rate,tenor_months,origination_date,first_due_date,branch,currency,balances_as_of
+CORE-L-IMP-001,C-DEMO-030,3000.00,0.18,12,2026-09-15,2026-10-15,Baku-Central,AZN,2026-10-27T05:30:00+04:00
