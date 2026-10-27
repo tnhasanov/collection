@@ -11,6 +11,7 @@ import { createPromise } from "@/server/modules/promises/promiseService";
 import { completeWorkItem, createCallbackWorkItem, ensureTaskWorkItem, refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 import { PROVIDER_DISPOSITION_MAP } from "@/server/modules/dialer/contract";
 import { outcomeSchema, validateOutcomeBusinessRules, type DraftInput, type OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
+import { buildFactualSummary, deriveCoverage, NEXT_ACTION_LABELS, type Coverage, type SummaryCustomerContext } from "@/server/modules/interactions/summary";
 import type { NextActionKind } from "@/generated/prisma/enums";
 
 export interface NextActionPreview {
@@ -25,11 +26,18 @@ export interface NextActionPreview {
   referral: string | null;
   customerWide: boolean;
   errors: string[];
+  /** Derived from the promise amount against the covered obligations (blueprint: full/partial coverage is derived, not chosen). */
+  derivedOutcome: OutcomeInput["businessOutcome"];
+  coverage: Coverage;
+  coveredOverdue: string | null;
+  factualSummary: string;
+  policyVersion: string;
 }
 
 /** Pure next-action computation shared by the preview endpoint and the save path. */
-export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null }): NextActionPreview {
+export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null; customer?: SummaryCustomerContext | null }): NextActionPreview {
   const errors = validateOutcomeBusinessRules(input);
+  const { coverage, coveredOverdue, derivedOutcome } = deriveCoverage(input, ctx.customer ?? null);
   const rpc = input.identityStatus === "RPC_VERIFIED";
   const cooldownUntil = rpc ? rpcCooldownEnd(ctx.now, ctx.policy) : null;
   let nextAction: NextActionKind = "POLICY_RETRY";
@@ -99,7 +107,18 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
   }
   const blocked = [cooldownUntil, ptpProtectionUntil, reconciliationHoldUntil].filter((d): d is Date => !!d);
   const routineCallsBlockedUntil = blocked.length ? new Date(Math.max(...blocked.map((d) => d.getTime()))) : null;
-  return { nextAction, summary, routineCallsBlockedUntil, cooldownUntil, ptpProtectionUntil, callbackAt, reconciliationHoldUntil, digitalReminders, referral, customerWide: true, errors };
+  const policyVersion = `${ctx.policy.code}/${ctx.policy.version}`;
+  const factualSummary = buildFactualSummary({ ...input, businessOutcome: derivedOutcome }, { technicalResult: ctx.technicalResult, customer: ctx.customer ?? null, policyVersion, nextActionLabel: NEXT_ACTION_LABELS[nextAction] ?? nextAction.toLowerCase(), routineCallsBlockedUntil, callbackAt, reconciliationHoldUntil });
+  return { nextAction, summary, routineCallsBlockedUntil, cooldownUntil, ptpProtectionUntil, callbackAt, reconciliationHoldUntil, digitalReminders, referral, customerWide: true, errors, derivedOutcome, coverage, coveredOverdue, factualSummary, policyVersion };
+}
+
+/** Bank-verified facts needed for coverage derivation and the factual summary. */
+export async function summaryContextFor(db: Db, customerId: string): Promise<SummaryCustomerContext | null> {
+  const c = await db.customer.findUnique({ where: { id: customerId }, include: { loans: { where: { status: "ACTIVE" }, select: { id: true, coreLoanId: true, totalOverdue: true, balancesAsOf: true } } } });
+  if (!c) return null;
+  const overdue = c.loans.reduce((s, l) => s + Number(l.totalOverdue), 0);
+  const asOf = c.loans.map((l) => l.balancesAsOf).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  return { displayName: c.displayName, overdueDueNow: overdue.toFixed(2), balancesAsOf: asOf, loans: c.loans.map((l) => ({ id: l.id, coreLoanId: l.coreLoanId, totalOverdue: l.totalOverdue.toString() })) };
 }
 
 export async function saveDraft(db: Db, params: { interactionId: string; actorUserId: string; draft: DraftInput; now: Date }) {
@@ -126,9 +145,12 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   }
   if (interaction.status === "OPEN") throw conflict("The call is still active; end the call before saving the final outcome", { code: "CALL_ACTIVE" });
   const policy = await getContactPolicy(db);
-  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult });
+  const summaryCtx = await summaryContextFor(db, interaction.customerId);
+  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult, customer: summaryCtx });
   const hardErrors = preview.errors.filter((e) => !e.startsWith("Requested callback time is outside"));
   if (hardErrors.length) throw unprocessable("Outcome is not valid", { errors: hardErrors });
+  // Coverage (full/partial) is derived from bank-verified obligations, never chosen by the agent.
+  input.businessOutcome = preview.derivedOutcome;
 
   const rpc = input.identityStatus === "RPC_VERIFIED";
   const session = interaction.reservation?.agentSessionId ? await db.agentSession.findUnique({ where: { id: interaction.reservation.agentSessionId } }) : null;
@@ -144,14 +166,16 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
       nonPaymentReason: input.nonPaymentReason ?? null,
       note: input.note ?? null,
       nextAction: preview.nextAction,
-      nextActionDetail: detail as never,
+      nextActionDetail: { ...detail, coverage: preview.coverage, coveredOverdue: preview.coveredOverdue } as never,
+      factualSummary: preview.factualSummary,
+      customerStatement: (input.customerStatement ?? null) as never,
       status: "SAVED",
       savedAt: params.now,
       acwEndedAt: params.now,
       acwSeconds,
       isRpc: rpc,
       providerDispositionCode: PROVIDER_DISPOSITION_MAP[input.businessOutcome] ?? "NO_RPC",
-      flags: [...(input.callback?.customerRequested ? ["CUSTOMER_REQUESTED_CALLBACK"] : []), ...(input.technicalResultCorrection ? ["TECHNICAL_RESULT_CORRECTED"] : [])],
+      flags: [...(input.callback?.customerRequested ? ["CUSTOMER_REQUESTED_CALLBACK"] : []), ...(input.technicalResultCorrection ? ["TECHNICAL_RESULT_CORRECTED"] : []), ...(input.secondaryFlags ?? [])],
       draftJson: Prisma.DbNull,
     },
   });
@@ -199,6 +223,18 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
     await ensureTaskWorkItem(db, { customerId: interaction.customerId, caseId, type: special ? "HANDOVER" : "SUPPORT_REVIEW", dueAt: addHours(params.now, 5 * 24), ownerUserId: null, reason: input.support.reason, sourceInteractionId: interaction.id, requiredSkill: special ? "SENIOR" : null });
     effects.supportCaseId = sc.id;
   }
+  // Independent flags create owned follow-up tasks without erasing the primary outcome.
+  for (const flag of input.secondaryFlags ?? []) {
+    if (!caseId) break;
+    if (flag === "SUPPORT_REFERRAL_REQUESTED" && input.businessOutcome !== "SUPPORT_NEEDED") {
+      const t = await ensureTaskWorkItem(db, { customerId: interaction.customerId, caseId, type: "SUPPORT_REVIEW", dueAt: addHours(params.now, 5 * 24), ownerUserId: null, reason: `Flagged during call: ${input.note ?? "support follow-up"}`, sourceInteractionId: interaction.id });
+      effects.supportFollowUpWorkItemId = t.id;
+    }
+    if (flag === "DISPUTE_RAISED" && input.businessOutcome !== "DISPUTE") {
+      const t = await ensureTaskWorkItem(db, { customerId: interaction.customerId, caseId, type: "DISPUTE_REVIEW", dueAt: addHours(params.now, 72), ownerUserId: null, reason: `Flagged during call: ${input.note ?? "dispute"}`, sourceInteractionId: interaction.id });
+      effects.disputeFollowUpWorkItemId = t.id;
+    }
+  }
   if (input.identityStatus === "WRONG_NUMBER" && input.wrongNumber) {
     const cp = interaction.customer.contactPoints.find((c) => c.id === input.wrongNumber!.contactPointId);
     if (!cp) throw unprocessable("Unknown contact point");
@@ -236,15 +272,38 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   return { interaction: saved, duplicate: false, preview, effects };
 }
 
-/** Audited correction of a saved outcome: the original stays; a correction row and a new audit event are added. */
+/**
+ * Audited correction of a saved outcome: the original stays; a correction row and a new audit event are added.
+ * Bank policy is re-evaluated under the corrected facts (promise cancelled when the outcome no longer is a promise,
+ * RPC cooldown follows the corrected identity, open work re-checked) and provider callability is reconciled
+ * explicitly through a corrected wrap-up command (never assumed from the label change).
+ */
 export async function correctOutcome(db: Db, params: { interactionId: string; actorUserId: string; reason: string; changes: Partial<Pick<OutcomeInput, "identityStatus" | "businessOutcome" | "nonPaymentReason" | "note">>; now: Date }) {
-  const interaction = await db.interaction.findUnique({ where: { id: params.interactionId } });
+  const interaction = await db.interaction.findUnique({ where: { id: params.interactionId }, include: { reservation: true } });
   if (!interaction) throw notFound("Interaction not found");
   if (interaction.status !== "SAVED" && interaction.status !== "CORRECTED") throw conflict("Only saved outcomes can be corrected");
   const before = { identityStatus: interaction.identityStatus, businessOutcome: interaction.businessOutcome, nonPaymentReason: interaction.nonPaymentReason, note: interaction.note };
   const after = { ...before, ...params.changes };
+  const policy = await getContactPolicy(db);
   await db.outcomeCorrection.create({ data: { interactionId: interaction.id, correctedBy: params.actorUserId, reason: params.reason, beforeJson: before as never, afterJson: after as never } });
-  const updated = await db.interaction.update({ where: { id: interaction.id }, data: { ...after, status: "CORRECTED", isRpc: after.identityStatus === "RPC_VERIFIED" } });
-  await appendAudit(db, { actorUserId: params.actorUserId, action: "interaction.outcome.corrected", objectType: "Interaction", objectId: interaction.id, customerId: interaction.customerId, reason: params.reason, changes: { before, after } });
-  return updated;
+  const stillPromise = after.businessOutcome === "PTP" || after.businessOutcome === "PARTIAL_COMMITMENT";
+  const effects: Record<string, unknown> = {};
+  if (!stillPromise) {
+    const cancelled = await db.promise.updateMany({ where: { interactionId: interaction.id, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"] } }, data: { status: "CANCELLED", cancelReason: `OUTCOME_CORRECTED: ${params.reason}`, suppressionUntil: null } });
+    effects.promisesCancelled = cancelled.count;
+  }
+  const isRpc = after.identityStatus === "RPC_VERIFIED";
+  const updated = await db.interaction.update({ where: { id: interaction.id }, data: { ...after, status: "CORRECTED", isRpc, providerDispositionCode: PROVIDER_DISPOSITION_MAP[after.businessOutcome ?? "NO_CONVERSATION"] ?? "NO_RPC", factualSummary: `${interaction.factualSummary ?? ""} CORRECTED (${params.reason}): outcome ${after.businessOutcome}, identity ${after.identityStatus}.`.trim() } });
+  // Re-evaluate open voice work for the customer under the corrected facts (cooldown/PTP protection derive from stored facts).
+  const open = await db.workItem.findMany({ where: { customerId: interaction.customerId, type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } }, select: { id: true } });
+  for (const wi of open) await refreshWorkItemEligibility(db, wi.id, params.now);
+  effects.workItemsReevaluated = open.length;
+  // Provider callability is reconciled explicitly: a corrected disposition is pushed as a new, idempotent wrap-up command.
+  if (interaction.channel === "VOICE_OUTBOUND") {
+    const session = interaction.reservation?.agentSessionId ? await db.agentSession.findUnique({ where: { id: interaction.reservation.agentSessionId } }) : null;
+    await enqueueOutbox(db, "dialer.wrapup", { interactionId: interaction.id, agentRef: session?.providerAgentRef ?? null, dispositionCode: updated.providerDispositionCode, returnReady: false, correction: true, reason: params.reason }, `wrapup-correction:${interaction.id}:${params.now.getTime()}`, interaction.correlationId);
+    effects.providerWrapUpCorrectionQueued = true;
+  }
+  await appendAudit(db, { actorUserId: params.actorUserId, action: "interaction.outcome.corrected", objectType: "Interaction", objectId: interaction.id, customerId: interaction.customerId, reason: params.reason, changes: { before, after, effects }, versionIds: { policyVersion: `${policy.code}/${policy.version}` } });
+  return { interaction: updated, effects };
 }

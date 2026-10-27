@@ -24,19 +24,21 @@ try {
   check(await page.getByText("CTI connected").first().isVisible(), "CTI session confirmed by the mock provider");
 
   async function completeAcw(label) {
-    await page.selectOption("#identity", "RPC_VERIFIED");
-    await page.selectOption("#outcome", "PTP");
-    await page.selectOption("#reason", { index: 1 });
-    // Promise defaults: full overdue amount and today's business date (editable by the agent); the customer must confirm.
-    await page.locator("#ptp-amount").waitFor({ state: "visible", timeout: 15000 });
-    const confirm = page.getByLabel(/Customer explicitly confirmed/);
-    if (!(await confirm.isChecked())) await confirm.check();
-    const save = page.getByRole("button", { name: "Save outcome & return Ready" });
-    await save.waitFor({ state: "visible", timeout: 30000 });
-    await page.waitForFunction(() => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.includes("Save outcome & return Ready")); return b && !b.disabled; }, null, { timeout: 60000 });
+    // Guided responses: quick-choice cards; nothing preselected; bank facts suggested; explicit customer confirmation.
+    await page.getByTestId("identity-RPC_VERIFIED").click();
+    await page.getByTestId("reason-SALARY_TIMING").click();
+    await page.getByTestId("outcome-PTP").click();
+    await page.getByTestId("ptp-amount-overdue").click();
+    await page.getByTestId("ptp-date-3days").click();
+    await page.getByTestId("ptp-confirm").check();
+    await page.getByTestId("factual-summary").waitFor({ timeout: 30000 });
+    const summary = await page.getByTestId("factual-summary").innerText();
+    check(/Borrower verified/.test(summary) && /Agreed payment/.test(summary) && /customer explicitly confirmed/.test(summary), `factual summary generated from the facts: "${summary.slice(0, 110)}…"`);
+    const save = page.getByTestId("save-next");
+    await page.waitForFunction(() => { const b = document.querySelector("[data-testid='save-next']"); return b && !b.disabled; }, null, { timeout: 60000 });
     await save.click();
     await page.getByText(/My collection workspace|Wrap-up pending acknowledgment|Reserved - dialing customer|Live customer conversation/).first().waitFor({ timeout: 90000 });
-    check(true, `${label}: validated outcome saved (PTP) → wrap-up acknowledged by the mock provider → Ready/next allocation`);
+    check(true, `${label}: one final save (Save & next call) → wrap-up acknowledged by the mock provider → Ready/next allocation`);
   }
 
   // A previous run may have left after-call work pending: finish it first (Ready is blocked until then).

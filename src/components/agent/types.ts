@@ -18,5 +18,7 @@ export type OutcomeDraft = {
   wrongNumber?: { contactPointId: string } | null;
   dispute?: { reason: string } | null;
   support?: { type: "HARDSHIP" | "COMPLAINT" | "SPECIAL_HANDLING" | "DECEASED_LEGAL"; reason: string } | null;
+  customerStatement?: { indicativePaymentDate?: string | null; indicativeAmount?: string | null; text?: string | null } | null;
+  secondaryFlags?: string[];
   returnReady?: boolean;
 };

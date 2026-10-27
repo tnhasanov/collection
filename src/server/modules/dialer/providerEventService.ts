@@ -52,6 +52,16 @@ export async function ingestProviderEvent(prisma: PrismaClient, event: Normalize
   if (!event.correlationId) return finish("IGNORED", "Event without correlation id");
   const reservation = await prisma.routingReservation.findUnique({ where: { correlationId: event.correlationId }, include: { workItem: true, customer: true } });
   if (!reservation) return finish("IGNORED", `Unknown correlation ${event.correlationId}`);
+  if ((["RELEASED", "CANCELLED", "EXPIRED", "FAILED"].includes(reservation.status) || reservation.withdrawalStatus === "REQUESTED" || reservation.withdrawalStatus === "CONFIRMED") && ["attempt.started", "customer.ringing", "customer.answered", "agent.bridged"].includes(event.eventType)) {
+    // Provider recycle / recall of work that is no longer authorized (withdrawn, expired, released): never a live
+    // contact for the agent. The attempt is recorded as cancelled, an END is requested and an exception is raised.
+    const ref = event.providerInteractionRef ?? `call-${event.correlationId}`;
+    await prisma.dialAttempt.upsert({ where: { providerAttemptRef: ref }, create: { reservationId: reservation.id, contactPointId: reservation.contactPointId, providerAttemptRef: ref, startedAt: new Date(event.occurredAt), technicalResult: "CANCELLED", resultSource: "COLLECTIONS_WITHDRAWAL" }, update: { technicalResult: "CANCELLED", resultSource: "COLLECTIONS_WITHDRAWAL" } });
+    await prisma.outboxMessage.upsert({ where: { idempotencyKey: `ctl:END:unauthorized:${event.correlationId}` }, create: { topic: "dialer.callControl", idempotencyKey: `ctl:END:unauthorized:${event.correlationId}`, payload: { action: "END", correlationId: event.correlationId, providerInteractionRef: ref, agentRef: event.agentRef ?? null, reason: "UNAUTHORIZED_ATTEMPT" } as never, correlationId: event.correlationId }, update: {} });
+    await prisma.exceptionCase.upsert({ where: { dedupKey: `UNAUTHORIZED_ATTEMPT:${reservation.id}` }, create: { dedupKey: `UNAUTHORIZED_ATTEMPT:${reservation.id}`, type: "SUPPRESSION_SYNC_FAILURE", severity: "CRITICAL", customerId: reservation.customerId, caseId: reservation.caseId, title: `Provider executed ${event.eventType} for withdrawn/expired work (${reservation.status}${reservation.withdrawalStatus ? `, withdrawal ${reservation.withdrawalStatus}` : ""}); END requested`, evidence: { correlationId: event.correlationId, eventType: event.eventType, providerInteractionRef: ref } as never }, update: { lastSeenAt: now, occurrences: { increment: 1 } } });
+    await appendAudit(prisma, { actorService: "cti-adapter", action: "cti.unauthorized_attempt", objectType: "RoutingReservation", objectId: reservation.id, customerId: reservation.customerId, correlationId: event.correlationId, blocked: true, changes: { eventType: event.eventType, reservationStatus: reservation.status, withdrawalStatus: reservation.withdrawalStatus } });
+    return finish("IGNORED", `Unauthorized provider attempt on ${reservation.status} reservation; END requested`);
+  }
   if (["RELEASED", "CANCELLED", "EXPIRED", "FAILED"].includes(reservation.status) && event.eventType !== "call.ended") return finish("IGNORED", `Reservation already ${reservation.status}`);
   const sessionId = reservation.agentSessionId;
 

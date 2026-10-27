@@ -1013,6 +1013,8 @@ model Interaction {
   nextAction           NextActionKind?
   nextActionDetail     Json?
   note                 String?
+  factualSummary       String?
+  customerStatement    Json?
   flags                String[]
   status               InteractionStatus  @default(OPEN)
   draftJson            Json?

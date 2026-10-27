@@ -11,6 +11,7 @@ import { CustomerContext } from "@/components/agent/CustomerContext";
 import { ScriptPanel } from "@/components/agent/ScriptPanel";
 import { OutcomeForm, type PreviewResult } from "@/components/agent/OutcomeForm";
 import { AfterCallWork } from "@/components/agent/AfterCallWork";
+import { ReviewStrip } from "@/components/agent/ReviewStrip";
 
 export interface AgentUser {
   id: string;
@@ -195,17 +196,18 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
                   <span className="kpi-note">{ctx.customer.summary.nextDue ? `${fmtAzn(ctx.customer.summary.nextDue.amount, false)} AZN / regular annuity` : ""}</span>
                 </div>
               </div>
-              <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_1fr]">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)]">
                 <Card>
                   <CustomerContext ctx={ctx} verified={verified} />
                 </Card>
                 <Card>
                   <ScriptPanel ctx={ctx} verified={verified} thirdParty={thirdParty} agentName={user.displayName} />
                 </Card>
-                <Card title="Responses / draft" subtitle="Structured dropdowns and conditional fields">
-                  {mode === "live" && interaction ? <OutcomeForm ctx={ctx} draft={draft} onChange={setDraft} onPreview={setPreview} compact serverNow={serverNow} /> : <p className="text-sm text-muted">Responses open when the customer is connected.</p>}
+                <Card title="Responses" subtitle="Quick choices while you talk; nothing is preselected">
+                  {mode === "live" && interaction ? <OutcomeForm ctx={ctx} draft={draft} onChange={setDraft} onPreview={setPreview} serverNow={serverNow} /> : <p className="text-sm text-muted">Responses open when the customer is connected.</p>}
                 </Card>
               </div>
+              {mode === "live" && interaction && <ReviewStrip ctx={ctx} draft={draft} preview={preview} callActive onSaved={() => void refreshFull()} />}
             </>
           )}
 
