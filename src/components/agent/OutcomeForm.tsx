@@ -90,6 +90,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [customAmount, setCustomAmount] = useState(false);
   const [customDate, setCustomDate] = useState(false);
+  const [customCallback, setCustomCallback] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idKey = useRef<string | null>(null);
@@ -146,6 +147,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
   const suggestedLoans = () => (overdueLoans.length ? overdueLoans : (customer?.loans ?? [])).map((l) => l.id);
   const ptpBase = () => draft.ptp ?? { amount: "", deadlineDate: "", coveredLoanIds: suggestedLoans(), customerConfirmed: false };
   const plusDays = (n: number) => { const d = new Date(serverNow().getTime() + n * 86400000); return d.toISOString().slice(0, 10); };
+  const cbSlot = (daysAhead: number, hm: string) => fromBakuLocalInput(`${bakuTodayIso(new Date(serverNow().getTime() + daysAhead * 86400000).toISOString())}T${hm}`) ?? "";
   const showReason = rpc && ["PTP", "PARTIAL_COMMITMENT", "NO_COMMITMENT", "CALLBACK_REQUESTED", "REFUSED", "SUPPORT_NEEDED", "ALREADY_PAID_CLAIM", "DISPUTE"].includes(draft.businessOutcome ?? "");
   const toggleFlag = (f: string) => { const cur = new Set(draft.secondaryFlags ?? []); if (cur.has(f)) cur.delete(f); else cur.add(f); set({ secondaryFlags: [...cur] }); };
 
@@ -223,22 +225,32 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
 
       {draft.businessOutcome === "CALLBACK_REQUESTED" && (
         <fieldset className="rounded-md border border-line p-3">
-          <legend className="px-1 text-xs font-bold uppercase tracking-wider text-muted">Requested callback</legend>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Agreed time (Asia/Baku)" htmlFor="cb-time" required hint="Policy re-checks eligibility at dispatch; outside permitted hours the next permitted time is used.">
-              <Input id="cb-time" type="datetime-local" disabled={locked} value={toBakuLocalInput(draft.callback?.dueAt ?? null) || toBakuLocalInput(new Date(serverNow().getTime() + 24 * 3600000).toISOString())} onChange={(e) => set({ callback: { customerRequested: true, ownerMode: "ME", ...(draft.callback ?? {}), dueAt: fromBakuLocalInput(e.target.value) ?? "" } })} />
+          <legend className="px-1 text-xs font-bold uppercase tracking-wider text-muted">Requested callback · agreed time window</legend>
+          <p className="label">Agreed time (Asia/Baku)</p>
+          <div className="chip-row mb-2">
+            {[["cb-time-tomorrow-10", "Tomorrow 10:00", cbSlot(1, "10:00")], ["cb-time-tomorrow-18", "Tomorrow 18:00", cbSlot(1, "18:00")], ["cb-time-plus2h", "In 2 hours", new Date(serverNow().getTime() + 2 * 3600000).toISOString()]].map(([id, label, iso]) => (
+              <button key={id} type="button" className="chip" data-testid={id} aria-pressed={!customCallback && draft.callback?.dueAt === iso} disabled={locked} onClick={() => { setCustomCallback(false); set({ callback: { customerRequested: draft.callback?.customerRequested ?? true, ownerMode: draft.callback?.ownerMode ?? "ME", dueAt: iso } }); }}>{label}</button>
+            ))}
+            <button type="button" className="chip" aria-pressed={customCallback} disabled={locked} onClick={() => setCustomCallback(true)}>Other time</button>
+          </div>
+          {customCallback && (
+            <Field label="Agreed time" htmlFor="cb-time" required hint="Policy re-checks eligibility at dispatch; outside permitted hours the next permitted time is used.">
+              <Input id="cb-time" type="datetime-local" disabled={locked} value={toBakuLocalInput(draft.callback?.dueAt ?? null)} onChange={(e) => set({ callback: { customerRequested: draft.callback?.customerRequested ?? true, ownerMode: draft.callback?.ownerMode ?? "ME", dueAt: fromBakuLocalInput(e.target.value) ?? "" } })} />
             </Field>
+          )}
+          {!draft.callback?.dueAt && <p className="mt-1 text-xs text-warning">Choose the time the customer agreed to.</p>}
+          <div className="grid gap-3 md:grid-cols-2">
             <Field label="Owner" htmlFor="cb-owner">
-              <Select id="cb-owner" disabled={locked} value={draft.callback?.ownerMode ?? "ME"} onChange={(e) => set({ callback: { dueAt: draft.callback?.dueAt ?? new Date(serverNow().getTime() + 24 * 3600000).toISOString(), customerRequested: draft.callback?.customerRequested ?? true, ownerMode: e.target.value as "ME" | "POOL" } })}>
+              <Select id="cb-owner" disabled={locked || !draft.callback?.dueAt} value={draft.callback?.ownerMode ?? "ME"} onChange={(e) => set({ callback: { dueAt: draft.callback?.dueAt ?? "", customerRequested: draft.callback?.customerRequested ?? true, ownerMode: e.target.value as "ME" | "POOL" } })}>
                 <option value="ME">Me (named owner, pool fallback if unavailable)</option>
                 <option value="POOL">Eligible pool</option>
               </Select>
             </Field>
+            <label className="inline-flex items-center gap-2 self-end pb-2 text-sm">
+              <input type="checkbox" disabled={locked || !draft.callback?.dueAt} checked={draft.callback?.customerRequested ?? true} onChange={(e) => set({ callback: { dueAt: draft.callback?.dueAt ?? "", ownerMode: draft.callback?.ownerMode ?? "ME", customerRequested: e.target.checked } })} />
+              Requested by the customer (evidenced exception to the cooldown under policy)
+            </label>
           </div>
-          <label className="mt-2 inline-flex items-center gap-2 text-sm">
-            <input type="checkbox" disabled={locked} checked={draft.callback?.customerRequested ?? true} onChange={(e) => set({ callback: { dueAt: draft.callback?.dueAt ?? new Date(serverNow().getTime() + 24 * 3600000).toISOString(), ownerMode: draft.callback?.ownerMode ?? "ME", customerRequested: e.target.checked } })} />
-            Requested by the customer (evidenced exception to the cooldown under policy)
-          </label>
         </fieldset>
       )}
 

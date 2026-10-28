@@ -1,6 +1,25 @@
 # Build status — ATB Collections (synthetic demo)
 
-Last updated: 27 Oct 2026 (session clock) · branch `claude/bold-bohr-njc446`
+Last updated: 28 Oct 2026 (after the guided-agent acceptance pass) · branch `claude/bold-bohr-njc446`
+
+## Guided-agent blueprint and acceptance pass (28 Oct 2026)
+
+Applied `docs/spec/ATB_Guided_Agent_Desktop_and_Dialer_Blueprint.md` to S28: quick-choice identity / reason / outcome
+cards with nothing preselected, suggested (bank-verified) promise amounts and dates with a mandatory explicit customer
+agreement, derived full/partial coverage, customer statements that never become promises, independent flags, a
+deterministic provenance-labelled factual summary, and one final **Save & next call** / **Save & pause**. Corrections
+re-evaluate policy and push a corrected provider disposition; provider attempts on withdrawn work are refused.
+Results: `AGENT_WORKFLOW_ACCEPTANCE.md`; measured interaction burden: `docs/evidence/agent-interaction-counts.md`;
+handover: `MORNING_HANDOVER.md`.
+
+| Check (this pass) | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint`, `npm run build` | clean; production build succeeds |
+| `npm test` | 39 unit tests (incl. summary/coverage determinism) |
+| `npm run test:integration` | 29 tests: journey 14 · collection floor 5 (six concurrent agents, senior routing, zero-entry no-answer, wrap-up/failed-save gating, break/refresh/reconnect, clock advancement) · guided conversation 10 (all scenarios + consequences) |
+| `npm run e2e` | browser critical path with the guided controls passed |
+| `npm run measure` | interaction counts per scenario (see evidence file) |
+| `npm run screenshots:agent` | home / reserved / live / live-captured / after-call work at 1440 and 1024 px |
 
 ## Executed checks (this build)
 
@@ -45,9 +64,11 @@ Last updated: 27 Oct 2026 (session clock) · branch `claude/bold-bohr-njc446`
 | S25 Users & roles | `/admin/users` | P0 | done (users, roles, teams, scopes — read/admin) |
 | S26 Recovery handover | `/recovery` | P1 | done (later-stage list, packet build, approval, export, acknowledge, return) |
 | S27 Self-service | `/self-service` | P2 | deferred — documented placeholder only |
-| S28 Agent desktop (A/B/C) | `/agent` | P0 core | done (automatic journey, SSE + polling, drafts, outcome validation, wrap-up gating, recovery states, manual dial for seniors) |
+| S28 Agent desktop (A/B/C) | `/agent` | P0 core | done — guided workflow per blueprint (quick choices, derived coverage, factual summary, one final save), SSE + polling, drafts, wrap-up gating, recovery states, manual dial for seniors |
 
 ## Known gaps and disabled functionality (precise inventory)
+
+- **Guided workflow**: live/ACW layouts stack below 1280 px (review strip needs scrolling at 1024 px); transfer unsupported by the mock; calibration reviews are a process step; reminder SMS go to the local outbound log. What only a real provider can prove is listed in `AGENT_WORKFLOW_ACCEPTANCE.md` §7.
 
 - **No real integrations**: core banking, payment feed, customer master, SMS gateway, dialer and identity are mocks. "Sent" SMS is a local log status. The mock dialer does not support transfer (button disabled) or inbound calls, so inbound/outbound reservation contention is not demonstrated.
 - **Model**: draft transcription activated for the demo only; 1–3 DPD rule is a DEMO placeholder; validation statistics (observed vs assigned, GINI/AUC, calibration, drift/PSI) are shown as unavailable; external scores are retained, not routed.

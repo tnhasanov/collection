@@ -47,15 +47,23 @@ try {
     await completeAcw("recovery");
   }
 
-  const readyBtn = page.getByRole("button", { name: "Go Ready" });
-  if (await readyBtn.isEnabled().catch(() => false)) {
-    await readyBtn.click();
-    log("ready", "requested; waiting for provider confirmation and automatic reservation");
+  // Ready once; then wait for the automatic reservation. A provider no-answer/busy result returns the agent to the
+  // workspace with zero entry and the next eligible customer is dialed automatically — tolerate a few of those.
+  const liveHeading = page.getByRole("heading", { name: "Live customer conversation" });
+  const homeHeading = page.getByRole("heading", { name: "My collection workspace" });
+  let noAnswer = 0;
+  for (let attempt = 0; attempt < 8 && !(await liveHeading.isVisible().catch(() => false)); attempt++) {
+    const readyBtn = page.getByRole("button", { name: "Go Ready" });
+    if (await readyBtn.isEnabled().catch(() => false)) { await readyBtn.click(); log("ready", "requested; waiting for provider confirmation and automatic reservation"); }
+    const outcome = await Promise.race([
+      liveHeading.waitFor({ timeout: 90000 }).then(() => "live"),
+      page.getByRole("heading", { name: "Reserved - dialing customer" }).waitFor({ timeout: 90000 }).then(() => Promise.race([liveHeading.waitFor({ timeout: 90000 }).then(() => "live"), homeHeading.waitFor({ timeout: 90000 }).then(() => "noanswer")])),
+    ]).catch(() => "timeout");
+    if (outcome === "noanswer") { noAnswer++; log("note", "provider no-answer/busy attempt recorded automatically (zero agent entry); next customer follows"); await page.waitForTimeout(1500); }
+    if (outcome === "timeout") log("note", `attempt ${attempt + 1}: no reservation yet`);
   }
-  await page.getByText(/Reserved - dialing customer|Live customer conversation/).first().waitFor({ timeout: 90000 });
-  check(true, "automatic reservation delivered to the agent (screen pop)");
-
-  await page.getByText("Live customer conversation").first().waitFor({ timeout: 90000 });
+  check(true, `automatic reservation delivered to the agent (screen pop)${noAnswer ? ` after ${noAnswer} zero-entry no-answer attempt(s)` : ""}`);
+  await liveHeading.waitFor({ timeout: 5000 });
   check(true, "call answered and bridged (provider-confirmed TALKING)");
   const customerText = await page.locator("[aria-label='Call strip']").innerText();
   const cust = customerText.match(/C-(?:DEMO|SYN)-\d+/)?.[0] ?? "?";
@@ -91,6 +99,9 @@ try {
 } catch (e) {
   failures.push(String(e));
   log("ERROR", String(e));
+  const h1 = await page.locator("h1").first().innerText().catch(() => "?");
+  const state = await page.locator("[aria-label='Availability']").innerText().catch(() => "?");
+  log("state at failure", `${h1} | ${state.replace(/\s+/g, " ").slice(0, 160)}`);
   await page.screenshot({ path: "docs/screenshots/e2e-failure.png", fullPage: true }).catch(() => {});
 } finally {
   await browser.close();

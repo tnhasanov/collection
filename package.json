@@ -24,7 +24,9 @@
     "db:reset": "tsx scripts/db-reset.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "screenshots": "node e2e/screenshots.mjs"
+    "screenshots": "node e2e/screenshots.mjs",
+    "measure": "node e2e/measure.mjs",
+    "screenshots:agent": "node e2e/agent-states.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

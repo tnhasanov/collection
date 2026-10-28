@@ -59,10 +59,13 @@ npm test                        # unit tests: annuity fixture, arrears/DPD, rule
 npm run test:integration        # resets TEST_DATABASE_URL and runs the full journey through the real services (CTI, allocation, outcomes, payments, policy, concurrency, permissions)
 npm run e2e                     # browser critical path against a running dev server + worker (Playwright, pre-installed in the dev container)
 npm run screenshots             # docs/screenshots at 1440 / 1280 / 1024 px
+npm run screenshots:agent       # agent workspace states (home, reserved, live, captured, after-call work) at 1440 / 1024 px
+npm run measure                 # instrumented browser run: clicks / typing / submissions per conversation scenario → docs/evidence/
 ```
 
-Last run: 50 tests passing (36 unit + 14 integration), typecheck and lint clean; the browser critical path and
-screenshots are in `docs/screenshots/`.
+Last run: 68 tests passing (39 unit + 29 integration), typecheck, lint and production build clean; the browser
+critical path, the agent-state screenshots and the measured interaction counts are in `docs/screenshots/` and
+`docs/evidence/`. Guided-workflow acceptance: `AGENT_WORKFLOW_ACCEPTANCE.md`; handover: `MORNING_HANDOVER.md`.
 
 ## The demonstrated journey
 
@@ -83,6 +86,7 @@ Scenario customers and acceptance mapping: `DEMO_SCENARIOS.md`.
 - `INTEGRATION_MAPPING.md` — adapters, event/API contracts, mapping templates, dialer adapter contract, readiness.
 - `METRIC_DICTIONARY.md` — numerator/denominator/scope/maturation for every reported ratio.
 - `DEMO_SCENARIOS.md` — seeded scenarios and how each acceptance scenario is demonstrated.
+- `AGENT_WORKFLOW_ACCEPTANCE.md` — guided-agent acceptance pass: scenario results, interaction counts, evidence, gaps; `MORNING_HANDOVER.md` — startup, logins, five-minute demo, next priorities.
 - `docs/API_CONTRACTS.md`, `docs/PERMISSIONS.md`, `docs/READINESS_CHECKLIST.md`, `docs/templates/*.csv`, `docs/screenshots/`.
 - `docs/spec/` — the supplied project pack (authoritative requirements; screen PDFs are illustrative).
 

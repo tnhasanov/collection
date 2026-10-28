@@ -34,7 +34,7 @@ Business date **27 Oct 2026** (Asia/Baku). All data is synthetic. Password for e
 | C-DEMO-030 | Current loan (DPD 0) | Not in the collections population |
 | C-SYN-0001 … | Generic portfolio (≈ 250 customers) across all DPD bands, classes and unscored reasons | Realistic queues, buckets and analytics |
 
-## The demonstrated journey (also automated in `npm run e2e`)
+## The demonstrated journey (also automated in `npm run e2e`; the guided workflow is measured by `npm run measure`)
 
 1. `agent.a` / `agent.b` → `/agent` → **Connect to dialer** → **Go Ready** (provider-confirmed).
 2. Automatic reservation of the top eligible customer (one reservation per customer, one voice interaction per agent) → progressive dial → trusted screen pop (customer 360 + script + policy context).
@@ -44,6 +44,20 @@ Business date **27 Oct 2026** (Asia/Baku). All data is synthetic. Password for e
 6. Same transaction id with kind `REPLAY` → `DUPLICATE`, no duplicate amount, allocation, promise credit, task or message.
 7. Failed-attempt retry: C-DEMO-010 (or any NO_ANSWER produced by the mock provider script) is deferred with the retry time and attempt counter visible in `/work-queue`.
 8. Blocked/stale data: C-DEMO-018 (`BALANCES_FRESH`), C-DEMO-016 (`NO_OPEN_DISPUTE`), C-DEMO-005 (`RPC_COOLDOWN`) show reason codes on the eligibility panel and in the queue.
+
+## Guided conversation (blueprint §5) — what the agent does per outcome
+
+| Agent sees / does | Captured as | Automatic consequence |
+|---|---|---|
+| Step A quick choice: Borrower verified / Third party / Verification failed / Wrong person / Wrong number (nothing preselected) | `identityStatus` | Customer-facing debt script unlocks only on "verified"; wrong number blocks the contact point |
+| Step B chip: reason the customer gives, incl. **Not stated / declined**; "Other" needs a short note | `nonPaymentReason` (customer-stated) | Recorded with provenance; never a judgement label |
+| Step C card: Payment promise · Requested callback · Already paid (claim) · No payment commitment · Dispute · Repayment support · Declines discussion | `businessOutcome` (coverage derived) | Promise/callback/claim/support/dispute effects, cooldown and PTP protection customer-wide |
+| Promise: amount chips (overdue due now / next installment / other), deadline chips (today / +3 / +7 / other), covered loans, **explicit customer agreement** | `ptp` → full or partial coverage derived against bank-verified overdue | Promise + reminders + protection; partial promise never cures |
+| "Might pay Friday": statement fields under No commitment / Declines / Callback | `customerStatement` | Nothing is created from it; it appears in the summary as "not a commitment" |
+| Independent flags: support follow-up, dispute raised, contact details changed, vulnerability indicated | `secondaryFlags` | Owned follow-up tasks without erasing the primary outcome |
+| Step D generated factual summary (provenance-labelled) and next action; Step E **Save & next call** / **Save & pause** | `factualSummary`, `nextAction` | One final save → effects + provider wrap-up → confirmed Ready or pause |
+
+Measured burden per scenario: `docs/evidence/agent-interaction-counts.md`; scenario-by-scenario results: `AGENT_WORKFLOW_ACCEPTANCE.md`.
 
 ## Core acceptance scenarios (Part B §15) → where they are proven
 

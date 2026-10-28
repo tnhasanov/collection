@@ -1,5 +1,5 @@
 /** Screenshots of the agent workspace in each state (home, reserved/dialing, live, after-call work, review) at two widths. */
-import { BASE, launch, log, login } from "./lib.mjs";
+import { launch, log, login } from "./lib.mjs";
 
 const browser = await launch();
 for (const width of [1440, 1024]) {
