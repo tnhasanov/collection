@@ -4,7 +4,8 @@ services:
   app:
     image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
     volumes:
-      - ../..:/workspaces:cached
+      # Bind paths are relative to the first, root-level Compose file.
+      - ..:/workspaces:cached
     command: sleep infinity
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atb_collections?schema=public

@@ -20,10 +20,11 @@ Demo logins (password `demo1234`): agents `agent.a` / `agent.b` (senior), `agent
 
 ## 1b. No Node.js on the machine? Run it in the browser
 
-Open the repository on GitHub, pick the branch, then **Code → Codespaces → Create codespace**. The dev container in
-`.devcontainer/` installs everything, seeds the synthetic demo, builds the app and starts the web app and the worker
-(first start about five to eight minutes). Open the forwarded port 3000 when the notification appears and sign in with
-the demo logins above. Details and sharing notes: README, "Run it in the browser".
+Open the repository on GitHub, switch the branch dropdown to this branch, then **Code → Codespaces → +**. The dev
+container in `.devcontainer/` installs everything, seeds the synthetic demo, builds the app and starts the web app and
+the worker (first start about five to eight minutes). Open port 3000 from the **Ports** tab (globe icon; a pasted URL
+in another browser profile gives HTTP 401) and sign in with the demo logins above. To share with colleagues set the
+port's visibility to Public. Details: README, "Run it in the browser".
 
 ## 2. Five-minute guided demonstration
 

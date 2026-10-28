@@ -1,22 +1,39 @@
 {
   "name": "ATB Collections demo",
-  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.yml"],
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.yml"
+  ],
   "service": "app",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "shutdownAction": "stopCompose",
-  "forwardPorts": [3000],
+  "forwardPorts": [
+    3000
+  ],
   "portsAttributes": {
-    "3000": { "label": "ATB Collections (web)", "onAutoForward": "notify" },
-    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
+    "3000": {
+      "label": "ATB Collections (web)",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "postStartCommand": "bash .devcontainer/start.sh",
   "customizations": {
     "vscode": {
-      "extensions": ["Prisma.prisma", "dbaeumer.vscode-eslint"]
+      "extensions": [
+        "Prisma.prisma",
+        "dbaeumer.vscode-eslint"
+      ]
     },
     "codespaces": {
-      "openFiles": ["MORNING_HANDOVER.md"]
+      "openFiles": [
+        "MORNING_HANDOVER.md"
+      ]
     }
-  }
+  },
+  "postAttachCommand": "bash .devcontainer/start.sh"
 }

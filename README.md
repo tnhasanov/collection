@@ -55,15 +55,25 @@ Agents land on `/agent`; everyone else on `/overview`. The admin can switch role
 The repository ships a dev container (`.devcontainer/`) that provisions Node.js 22, PostgreSQL 16, the migrations,
 the synthetic seed, a production build and both processes (web app and worker) automatically.
 
-1. On GitHub open the repository, switch to the branch you want to run, then **Code → Codespaces → Create codespace**.
-2. Wait for the setup to finish (about five to eight minutes the first time; the setup log ends with `[setup] done`).
-3. When the "port 3000" notification appears choose **Open in Browser** (or open the *Ports* tab and click the globe
-   icon next to port 3000).
-4. Sign in with any demo identity (`agent.a`, `lead`, `risk`, `integrator`, `admin`) and the password `demo1234`.
+1. On GitHub open the repository and switch the branch dropdown to the branch you want to run (a codespace built from
+   a branch without the project, such as a bare `main`, contains only its README).
+2. **Code → Codespaces → +** ("Create a codespace on <branch>"). The first start takes about five to eight minutes;
+   the creation log (Ctrl+Shift+P → "Codespaces: View Creation Log") ends with `[setup] done`.
+3. Open the **Ports** tab, hover the row for port 3000 ("ATB Collections (web)") and click the globe icon. Always open
+   the app from this tab: a forwarded port is private to your GitHub account, and typing the URL in another browser
+   profile or an incognito window gives `HTTP ERROR 401`.
+4. Sign in with any demo identity (`agent.a`, `lead`, `head`, `risk`, `integrator`, `admin`) and the password
+   `demo1234`.
 
-The forwarded URL is private to your GitHub account by default; set the port's visibility to *Public* in the Ports tab
-to let colleagues open it (synthetic data only). Logs are in `/tmp/atb/`; `npm run db:reset` restores the seeded
-state; stopping the codespace stops everything and `.devcontainer/start.sh` restarts it on the next start.
+To let colleagues open it, right-click port 3000 in the Ports tab and set **Port Visibility → Public**; anyone with
+the link can then sign in with the demo logins (synthetic data only). Keep the codespace running while they test: it
+stops after the idle timeout (30 minutes by default; raise it under GitHub Settings → Codespaces) and the link works
+again as soon as it is started.
+
+The web app and the worker are started by `.devcontainer/start.sh` on every start and attach; logs are in
+`/tmp/atb/`. If port 3000 is not listed, run `bash .devcontainer/start.sh` in the terminal (or `npm start` to see
+the output directly). `npm run db:reset` restores the seeded state. The free Codespaces quota is about 60 hours a
+month on the default 2-core machine.
 
 ## Verification commands
 

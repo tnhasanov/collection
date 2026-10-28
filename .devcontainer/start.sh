@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Runs every time the dev container starts: web app on port 3000 and the background worker (required for dialing,
-# wrap-ups, outbox, SMS log and decisions). Logs: /tmp/atb/web.log and /tmp/atb/worker.log.
+# Runs when the dev container starts and whenever the editor attaches: web app on port 3000 and the background worker
+# (required for dialing, wrap-ups, outbox, SMS log and decisions). Safe to re-run: already running processes are kept.
+# Logs: /tmp/atb/web.log and /tmp/atb/worker.log.
 cd "$(dirname "$0")/.."
 mkdir -p /tmp/atb
 
-if ! pgrep -f "next (start|dev)" >/dev/null 2>&1; then
+# setsid + closed stdin keep the processes alive after the lifecycle hook that launched them has finished.
+launch() { setsid nohup "$@" < /dev/null >> "$LOG" 2>&1 & disown; }
+
+if ! pgrep -f "next (start|dev)" > /dev/null 2>&1; then
+  LOG=/tmp/atb/web.log
   if [ -f .next/BUILD_ID ]; then
-    nohup npm start > /tmp/atb/web.log 2>&1 &
+    launch npm start
     echo "[start] web app (production build) starting on http://localhost:3000"
   else
-    nohup npm run dev > /tmp/atb/web.log 2>&1 &
-    echo "[start] web app (dev mode) starting on http://localhost:3000"
+    launch npm run dev
+    echo "[start] web app (dev mode, no production build found) starting on http://localhost:3000"
   fi
+else
+  echo "[start] web app already running"
 fi
 
-if ! pgrep -f "src/worker/main.ts" >/dev/null 2>&1; then
-  nohup npm run worker > /tmp/atb/worker.log 2>&1 &
+if ! pgrep -f "src/worker/main.ts" > /dev/null 2>&1; then
+  LOG=/tmp/atb/worker.log
+  launch npm run worker
   echo "[start] worker starting"
+else
+  echo "[start] worker already running"
 fi
 
-echo "[start] sign in with any demo identity (for example agent.a or lead) and the password demo1234"
+echo "[start] open port 3000 from the Ports tab (globe icon); sign in with agent.a or lead and the password demo1234"
