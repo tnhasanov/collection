@@ -1,0 +1,42 @@
+# Render Blueprint for the ATB Collections demo (synthetic data, mock adapters, no real integrations).
+# Render dashboard → New → Blueprint → select this repository and branch → Apply.
+# Free plans are used so the demo costs nothing; see DEPLOYMENT.md for their limits and the paid alternatives.
+databases:
+  - name: atb-collections-db
+    databaseName: atb_collections
+    user: atb
+    plan: free            # free databases expire after a period set by Render; upgrade (basic-256mb) to keep the data
+    region: frankfurt
+
+services:
+  - type: web
+    name: atb-collections
+    runtime: docker
+    plan: free            # sleeps after ~15 minutes without traffic; upgrade to starter for an always-on demo
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /login
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: atb-collections-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_MODE
+        value: DEMO
+      - key: DEMO_CLOCK_MODE
+        value: offset
+      - key: PGBOSS_SCHEMA
+        value: pgboss
+      - key: CONNECTOR_CORE_BANKING
+        value: mock
+      - key: CONNECTOR_PAYMENT_FEED
+        value: mock
+      - key: CONNECTOR_SMS
+        value: mock
+      - key: CONNECTOR_DIALER
+        value: mock
+      - key: CONNECTOR_IDENTITY
+        value: local-demo

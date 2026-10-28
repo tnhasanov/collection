@@ -75,6 +75,12 @@ The web app and the worker are started by `.devcontainer/start.sh` on every star
 the output directly). `npm run db:reset` restores the seeded state. The free Codespaces quota is about 60 hours a
 month on the default 2-core machine.
 
+### Host it with a permanent address (Render, Railway)
+
+`Dockerfile` and `scripts/start-all.sh` run migrations, the idempotent seed, the worker and the web app in one
+container; `render.yaml` is a one-click Render blueprint. Steps, costs and limits for Render, Railway and others are
+in `DEPLOYMENT.md`. The hosted demo stays synthetic: demo logins, mock dialer, local outbound log.
+
 ## Verification commands
 
 ```bash
