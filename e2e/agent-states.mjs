@@ -34,9 +34,9 @@ for (const width of [1440, 1024]) {
   await page.getByTestId("factual-summary").waitFor({ timeout: 30000 });
   await page.screenshot({ path: `docs/screenshots/agent-live-captured-${width}.png`, fullPage: true });
   await page.getByRole("button", { name: "End", exact: true }).click();
-  await page.getByText("After-call work").first().waitFor({ timeout: 60000 });
+  await page.getByTestId("acw-strip").waitFor({ timeout: 60000 });
   await page.getByTestId("factual-summary").waitFor({ timeout: 30000 });
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(1500);
   await page.screenshot({ path: `docs/screenshots/agent-acw-${width}.png`, fullPage: true });
   await page.waitForFunction(() => { const b = document.querySelector("[data-testid='save-next']"); return b && !b.disabled; }, null, { timeout: 60000 });
   await page.getByTestId("save-pause").click();

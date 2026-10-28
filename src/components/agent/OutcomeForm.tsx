@@ -156,7 +156,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
         <div className="choice-grid">
           {IDENTITY.map(([k, l, h]) => <Choice key={k} testId={`identity-${k}`} pressed={draft.identityStatus === k} onClick={() => { if (draft.identityStatus !== k) set({ identityStatus: k }); }} label={l} hint={h} disabled={locked} />)}
         </div>
-        {!draft.identityStatus && <p className="mt-1 text-xs text-muted">Nothing is preselected. "Verified" means the bank's approved procedure was completed, not that the line was answered.</p>}
+        {!draft.identityStatus && <p className="mt-1 text-xs text-muted">Nothing is preselected. &quot;Verified&quot; means the bank&apos;s approved procedure was completed, not that the line was answered.</p>}
         {draft.identityStatus === "WRONG_NUMBER" && (
           <Field label="Which contact point is wrong?" htmlFor="wrong-cp" required>
             <Select id="wrong-cp" value={draft.wrongNumber?.contactPointId ?? ""} onChange={(e) => set({ wrongNumber: e.target.value ? { contactPointId: e.target.value } : null })} disabled={locked}>
@@ -173,7 +173,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
           <div className="chip-row">
             {REASONS.map(([k, l]) => <button key={k} type="button" className="chip" aria-pressed={draft.nonPaymentReason === k} data-testid={`reason-${k}`} disabled={locked} onClick={() => set({ nonPaymentReason: draft.nonPaymentReason === k ? null : k })}>{l}</button>)}
           </div>
-          {showReason && !draft.nonPaymentReason && <p className="mt-1 text-xs text-warning">Required for this outcome; choose "Not stated / declined" if the customer gave no reason.</p>}
+          {showReason && !draft.nonPaymentReason && <p className="mt-1 text-xs text-warning">Required for this outcome; choose &quot;Not stated / declined&quot; if the customer gave no reason.</p>}
         </section>
       )}
 
@@ -185,12 +185,12 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
           </div>
         </section>
       )}
-      {draft.identityStatus && !rpc && !thirdParty && <p className="text-xs text-muted">Outcome recorded as "No conversation" (no verified borrower contact). {draft.identityStatus === "WRONG_NUMBER" ? "The contact point will be flagged." : ""}</p>}
+      {draft.identityStatus && !rpc && !thirdParty && <p className="text-xs text-muted">Outcome recorded as &quot;No conversation&quot; (no verified borrower contact). {draft.identityStatus === "WRONG_NUMBER" ? "The contact point will be flagged." : ""}</p>}
 
       {(draft.businessOutcome === "PTP" || draft.businessOutcome === "PARTIAL_COMMITMENT") && (
         <fieldset className="rounded-md border border-line p-3">
           <legend className="px-1 text-xs font-bold uppercase tracking-wider text-muted">Payment promise · explicit customer agreement</legend>
-          <p className="mb-1 text-xs text-muted">Suggestions come from bank-verified amounts; the customer's actual agreement must be confirmed below.</p>
+          <p className="mb-1 text-xs text-muted">Suggestions come from bank-verified amounts; the customer&apos;s actual agreement must be confirmed below.</p>
           <p className="label">Amount (AZN)</p>
           <div className="chip-row mb-2">
             {Number(overdueTotal) > 0 && <button type="button" className="chip" data-testid="ptp-amount-overdue" aria-pressed={!customAmount && draft.ptp?.amount === overdueTotal} disabled={locked} onClick={() => { setCustomAmount(false); set({ ptp: { ...ptpBase(), amount: overdueTotal } }); }}>Overdue due now {fmtAzn(overdueTotal, false)}</button>}
@@ -217,7 +217,7 @@ export function OutcomeForm({ ctx, draft, onChange, onPreview, serverNow }: { ct
             <input type="checkbox" data-testid="ptp-confirm" checked={!!draft.ptp?.customerConfirmed} disabled={locked} onChange={(e) => set({ ptp: { ...ptpBase(), customerConfirmed: e.target.checked } })} />
             The customer explicitly agreed to this amount and date
           </label>
-          <p className="mt-1 text-xs text-muted">"I might pay Friday" is not a promise: record it under "No payment commitment" as a statement. A promise never rewrites the contract.</p>
+          <p className="mt-1 text-xs text-muted">&quot;I might pay Friday&quot; is not a promise: record it under &quot;No payment commitment&quot; as a statement. A promise never rewrites the contract.</p>
         </fieldset>
       )}
 

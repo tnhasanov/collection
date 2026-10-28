@@ -166,6 +166,15 @@ export class MockDialerAdapter implements DialerAdapter {
     if (!call) return;
     if (event.eventType === "customer.answered" || event.eventType === "agent.bridged") this.interactions.set(ref, { ...call, state: "CONNECTED", technicalResult: "ANSWERED", answeredAt: event.occurredAt });
     if (event.eventType === "call.ended") this.interactions.set(ref, { ...call, state: "ENDED", technicalResult: (event.payload.technicalResult as ProviderInteraction["technicalResult"]) ?? call.technicalResult ?? "ANSWERED", endedAt: event.occurredAt });
+    // The provider's own view of the agent follows the call legs (what a reconcile/getAgentState would report after a reconnect).
+    const agentRef = event.agentRef ?? call.agentRef;
+    if (agentRef) {
+      const current = this.agentStates.get(agentRef);
+      const set = (state: ConfirmedAgentState["state"], active: string | null) => this.agentStates.set(agentRef, { agentRef, state, since: event.occurredAt, activeInteractionRef: active, connectionHealthy: current?.connectionHealthy ?? true });
+      if (event.eventType === "attempt.started") set("DIALING", ref);
+      if (event.eventType === "agent.bridged") set("TALKING", ref);
+      if (event.eventType === "call.ended") set(this.interactions.get(ref)?.answeredAt ? "ACW" : (current?.state === "DIALING" || current?.state === "RESERVED" ? "READY" : current?.state ?? "READY"), null);
+    }
   }
 }
 

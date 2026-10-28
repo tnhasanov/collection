@@ -1,6 +1,6 @@
 import { dec, money } from "@/server/money";
 import { formatDate, formatBakuDateTime } from "@/server/dates";
-import { IDENTITY_LABELS, OUTCOME_LABELS, REASON_LABELS_NP, SECONDARY_FLAG_LABELS, type OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
+import { IDENTITY_LABELS, REASON_LABELS_NP, SECONDARY_FLAG_LABELS, type OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
 
 /**
  * Deterministic factual summary (blueprint §5 step D). Built only from the selected facts; it labels provenance
