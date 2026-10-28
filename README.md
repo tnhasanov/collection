@@ -50,6 +50,21 @@ Demo identities (password `demo1234`, DEMO mode only): `agent.a`, `agent.b` (sen
 `lead`, `head`, `risk`, `modelmaker`, `approver`, `integrator`, `auditor`, `admin`, service account `svc.core-feed`.
 Agents land on `/agent`; everyone else on `/overview`. The admin can switch role in DEMO mode (audited).
 
+### Run it in the browser (GitHub Codespaces, nothing to install)
+
+The repository ships a dev container (`.devcontainer/`) that provisions Node.js 22, PostgreSQL 16, the migrations,
+the synthetic seed, a production build and both processes (web app and worker) automatically.
+
+1. On GitHub open the repository, switch to the branch you want to run, then **Code → Codespaces → Create codespace**.
+2. Wait for the setup to finish (about five to eight minutes the first time; the setup log ends with `[setup] done`).
+3. When the "port 3000" notification appears choose **Open in Browser** (or open the *Ports* tab and click the globe
+   icon next to port 3000).
+4. Sign in with any demo identity (`agent.a`, `lead`, `risk`, `integrator`, `admin`) and the password `demo1234`.
+
+The forwarded URL is private to your GitHub account by default; set the port's visibility to *Public* in the Ports tab
+to let colleagues open it (synthetic data only). Logs are in `/tmp/atb/`; `npm run db:reset` restores the seeded
+state; stopping the codespace stops everything and `.devcontainer/start.sh` restarts it on the next start.
+
 ## Verification commands
 
 ```bash

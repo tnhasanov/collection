@@ -1,0 +1,24 @@
+# Dev container for GitHub Codespaces / VS Code: the app container plus the PostgreSQL service from ../docker-compose.yml.
+# No secrets: local-only demo credentials, synthetic data, mock adapters.
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atb_collections?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atb_collections_test?schema=public
+      APP_MODE: DEMO
+      DEMO_CLOCK_MODE: offset
+      SESSION_SECRET: change-me-local-demo-only
+      PGBOSS_SCHEMA: pgboss
+      CONNECTOR_CORE_BANKING: mock
+      CONNECTOR_PAYMENT_FEED: mock
+      CONNECTOR_SMS: mock
+      CONNECTOR_DIALER: mock
+      CONNECTOR_IDENTITY: local-demo
+      APP_URL: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
