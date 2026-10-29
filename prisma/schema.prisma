@@ -506,6 +506,10 @@ model CaseLoan {
   loanId String
   loan   Loan           @relation(fields: [loanId], references: [id])
   linkedAt DateTime @default(now())
+  /// Loan-level closure inside a multi-loan case: set when this loan's arrears are cleared or the contract closes
+  /// while other loans keep the case open; cleared again if arrears return. The case cures when every loan is released.
+  releasedAt    DateTime?
+  releaseReason String?
 
   @@id([caseId, loanId])
 }
@@ -1245,6 +1249,8 @@ model Arrangement {
 }
 
 enum ApprovalType {
+  /// Promise date outside the policy horizon proposed by an agent; approval creates the promise, rejection records the refusal.
+  PTP_EXCEPTION
   MODEL_ACTIVATION
   STRATEGY_ACTIVATION
   POLICY_ACTIVATION

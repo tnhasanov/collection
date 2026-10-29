@@ -28,7 +28,8 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
     include: {
       contactPoints: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       loans: { orderBy: { originationDate: "asc" } },
-      cases: { orderBy: { openedAt: "desc" }, take: 5, include: { owner: true, team: true } },
+      cases: { orderBy: { openedAt: "desc" }, take: 5, include: { owner: true, team: true, caseLoans: { select: { loanId: true, releasedAt: true, releaseReason: true } } } },
+      relatedParties: { orderBy: [{ role: "asc" }, { displayName: "asc" }] },
       promises: { orderBy: { createdAt: "desc" }, take: 10, include: { paymentLinks: true } },
       supportCases: { where: { status: { in: ["OPEN", "UNDER_REVIEW"] } } },
       paymentClaims: { where: { status: "OPEN" } },
@@ -105,7 +106,8 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
       modelExposure: money(principalOutstanding).toFixed(2),
       balancesAsOf: active.reduce<Date | null>((m, l) => (!m || l.balancesAsOf < m ? l.balancesAsOf : m), null),
     },
-    case: openCase ? { id: openCase.id, status: openCase.status, episodeNo: openCase.episodeNo, openedAt: openCase.openedAt, ownerName: openCase.owner?.displayName ?? null, teamName: openCase.team?.name ?? null, portfolio: openCase.portfolio } : null,
+    case: openCase ? { id: openCase.id, status: openCase.status, episodeNo: openCase.episodeNo, openedAt: openCase.openedAt, ownerName: openCase.owner?.displayName ?? null, teamName: openCase.team?.name ?? null, portfolio: openCase.portfolio, loans: openCase.caseLoans.map((cl) => ({ loanId: cl.loanId, inScope: !cl.releasedAt, releasedAt: cl.releasedAt, releaseReason: cl.releaseReason })) } : null,
+    relatedParties: customer.relatedParties.map((r) => ({ id: r.id, role: r.role, displayName: r.displayName, relation: r.relation, phoneMasked: r.phoneMasked, verification: r.verification, disclosureAllowed: r.disclosureAllowed, contactRules: r.contactRules, sourceSystem: r.sourceSystem, sourceAsOf: r.sourceAsOf })),
     caseHistory: customer.cases.map((c) => ({ id: c.id, status: c.status, episodeNo: c.episodeNo, openedAt: c.openedAt, closedAt: c.closedAt, closeReason: c.closeReason })),
     decision: decision
       ? {

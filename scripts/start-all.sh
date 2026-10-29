@@ -13,6 +13,9 @@ node node_modules/prisma/build/index.js migrate deploy
 echo "[boot] seeding the synthetic demo (skipped when data already exists)"
 node node_modules/tsx/dist/cli.mjs prisma/seed.ts
 
+echo "[boot] applying idempotent pilot reference data (templates, related parties)"
+node node_modules/tsx/dist/cli.mjs scripts/seed-pilot-reference.ts
+
 # Direct node processes (no npm/sh wrappers) so a TERM from the host reaches them immediately.
 echo "[boot] starting the background worker"
 node node_modules/tsx/dist/cli.mjs src/worker/main.ts &

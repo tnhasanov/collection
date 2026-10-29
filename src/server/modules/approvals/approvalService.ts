@@ -8,6 +8,8 @@ import { validateStrategyConfig } from "@/server/modules/strategy/strategyServic
 import { runGoldenCases } from "@/server/modules/models/modelService";
 import { runDailyDecision } from "@/server/modules/decisions/decisionRun";
 import type { RulePackage } from "@/server/modules/decisions/ruleInterpreter";
+import { createPromise } from "@/server/modules/promises/promiseService";
+import { refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 
 /**
  * Maker/checker approvals (S11). The checker must be a different user from the maker; approving applies the
@@ -17,6 +19,7 @@ import type { RulePackage } from "@/server/modules/decisions/ruleInterpreter";
 export type Decision = "APPROVE" | "REJECT" | "REQUEST_INFO";
 
 export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
+  PTP_EXCEPTION: "Promise-date exception",
   MODEL_ACTIVATION: "Model activation",
   STRATEGY_ACTIVATION: "Strategy activation",
   POLICY_ACTIVATION: "Policy / parameter change",
@@ -33,6 +36,19 @@ export const APPROVAL_TYPE_LABELS: Record<ApprovalType, string> = {
 
 async function applyEffect(prisma: PrismaClient, ar: { id: string; type: ApprovalType; objectType: string; objectId: string; afterJson: unknown; rollbackTargetId: string | null; proposedEffectiveAt: Date | null }, checker: SessionUser, now: Date): Promise<Record<string, unknown>> {
   switch (ar.type) {
+    case "PTP_EXCEPTION": {
+      // Approval turns the agent's proposal into a real promise (horizon bypassed with provenance); reminders,
+      // protection and work re-evaluation follow the normal promise path. Nothing existed before approval.
+      const p = ar.afterJson as { customerId: string; caseId: string | null; interactionId: string | null; amount: string; deadlineDate: string; coveredLoanIds: string[]; customerConfirmed: boolean; agentUserId: string | null; lastRpcAt: string | null } | null;
+      if (!p) throw unprocessable("Proposal payload missing");
+      const existing = await prisma.promise.findFirst({ where: { interactionId: p.interactionId ?? undefined, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"] } } });
+      if (p.interactionId && existing) return { promiseId: existing.id, note: "Promise already created for this proposal" };
+      const promise = await createPromise(prisma, { customerId: p.customerId, caseId: p.caseId, interactionId: p.interactionId, amount: p.amount, deadlineDate: p.deadlineDate as never, coveredLoanIds: p.coveredLoanIds, customerConfirmed: p.customerConfirmed, createdByUserId: p.agentUserId, ownerUserId: p.agentUserId, now, lastRpcAt: p.lastRpcAt ? new Date(p.lastRpcAt) : null, supersedeReason: "Approved promise-date exception", policyException: { approvalId: ar.id, approvedBy: checker.username } });
+      const open = await prisma.workItem.findMany({ where: { customerId: p.customerId, type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } }, select: { id: true } });
+      for (const wi of open) await refreshWorkItemEligibility(prisma, wi.id, now);
+      if (p.agentUserId) await prisma.notification.create({ data: { userId: p.agentUserId, kind: "PTP_EXCEPTION_APPROVED", message: `Promise-date exception approved: ${p.amount} AZN by ${p.deadlineDate}; the promise and its reminder are now active.`, link: `/promises?selected=${promise.id}` } });
+      return { promiseId: promise.id, suppressionUntil: promise.suppressionUntil };
+    }
     case "MODEL_ACTIVATION": {
       const mv = await prisma.modelVersion.findUnique({ where: { id: ar.objectId } });
       if (!mv) throw notFound("Model version no longer exists");
@@ -148,6 +164,10 @@ export async function decideApproval(prisma: PrismaClient, id: string, checker: 
   if (decision === "APPROVE") effect = await applyEffect(prisma, ar, checker, now);
   const status = decision === "APPROVE" ? "APPROVED" : decision === "REJECT" ? "REJECTED" : "INFO_REQUESTED";
   const updated = await prisma.approvalRequest.update({ where: { id }, data: { status, checkerUserId: checker.id, decisionNote: note, decidedAt: decision === "REQUEST_INFO" ? null : now, evidenceJson: effect ? ({ ...(ar.evidenceJson as object | null), effect } as never) : undefined } });
+  if (decision === "REJECT" && ar.type === "PTP_EXCEPTION") {
+    const p = ar.afterJson as { agentUserId?: string | null; amount?: string; deadlineDate?: string } | null;
+    if (p?.agentUserId) await prisma.notification.create({ data: { userId: p.agentUserId, kind: "PTP_EXCEPTION_REJECTED", message: `Promise-date exception rejected (${p.amount} AZN by ${p.deadlineDate}): ${note}. Agree a date within policy on the next contact.` } });
+  }
   if (decision === "REJECT" && ar.objectType === "Arrangement") await prisma.arrangement.update({ where: { id: ar.objectId }, data: { status: "REJECTED" } });
   if (decision === "REJECT" && ar.objectType === "StrategyVersion") await prisma.strategyVersion.update({ where: { id: ar.objectId }, data: { status: "REJECTED" } });
   if (decision === "REJECT" && ar.objectType === "ModelVersion") await prisma.modelVersion.update({ where: { id: ar.objectId }, data: { status: "REJECTED" } });

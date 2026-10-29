@@ -59,10 +59,16 @@ export function buildFactualSummary(input: OutcomeInput, ctx: { technicalResult:
       parts.push(`Repayment support requested (${input.support?.type?.toLowerCase().replace(/_/g, " ") ?? "support"}): ${input.support?.reason ?? ""} (customer-stated); no contract change agreed.`);
       break;
     case "SPECIAL_REFERRAL":
-      parts.push(`Special-case referral (${input.support?.type?.toLowerCase().replace(/_/g, " ") ?? "special handling"}).`);
+      parts.push(input.support?.type === "DECEASED_LEGAL" ? `Death of the borrower reported${input.support.reporterRelation ? ` by ${input.support.reporterRelation.toLowerCase().replace(/_/g, " ")}` : ""} (reported, not confirmed); verification task opened and routine contact stopped.` : `Special-case referral (${input.support?.type?.toLowerCase().replace(/_/g, " ") ?? "special handling"}).`);
       break;
     case "NO_CONVERSATION":
       parts.push("No conversation with the borrower took place.");
+      break;
+    case "DELINQUENCY_CLOSED":
+      parts.push("Overdue cleared by a verified core posting during the conversation (bank-verified); the collection episode closes (Gecikmə bağlanıb). No promise or follow-up contact created.");
+      break;
+    case "PTP_EXCEPTION_PROPOSED":
+      if (input.ptp) parts.push(`Customer proposed ${fmt(input.ptp.amount)} AZN by ${formatDate(input.ptp.deadlineDate)}${input.ptp.customerConfirmed ? " (customer confirmed the proposal)" : ""}; the date is outside the promise policy, so a promise-date exception was sent for approval. No promise, reminder or protection exists until it is approved.`);
       break;
   }
   if (input.customerStatement && (input.customerStatement.indicativePaymentDate || input.customerStatement.indicativeAmount || input.customerStatement.text)) {

@@ -188,6 +188,8 @@ export const PROVIDER_DISPOSITION_MAP: Record<string, string> = {
   REFUSED: "RPC_REFUSED",
   SPECIAL_REFERRAL: "SPECIAL",
   NO_CONVERSATION: "NO_RPC",
+  DELINQUENCY_CLOSED: "RPC_PAID",
+  PTP_EXCEPTION_PROPOSED: "RPC_PTP_EXCEPTION",
 };
 
 export function maskNumber(value: string): string {

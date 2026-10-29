@@ -22,6 +22,7 @@ export const ALLOWED_VARIABLES: Record<string, { description: string; sample: st
   nextDueDate: { description: "Next scheduled due date", sample: "20.11.2026" },
   nextDueAmount: { description: "Next installment AZN", sample: "499.24" },
   branch: { description: "Home branch", sample: "Baku-Central" },
+  loanRef: { description: "Core loan reference of the oldest overdue loan", sample: "CORE-L-DEMO-001" },
 };
 const SENSITIVE = [/court/i, /police/i, /criminal/i, /arrest/i, /məhkəmə/i, /polis/i, /суд/i, /полиц/i, /тюрьм/i, /prison/i];
 
@@ -78,7 +79,8 @@ export async function variablesForCustomer(db: Db, customerId: string | null, ag
   const oldest = c.loans.map((l) => l.oldestUnpaidDueDate).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0];
   const next = c.loans.map((l) => ({ d: l.nextDueDate, a: l.nextDueAmount })).filter((x) => x.d).sort((a, b) => a.d!.getTime() - b.d!.getTime())[0];
   const p = c.promises[0];
-  return { ...sample, agentName, customerName: c.displayName, overdueAmount: overdue, oldestDueDate: oldest ? formatDate(oldest) : "—", dpd: String(c.loans.reduce((m, l) => Math.max(m, l.dpd), 0)), promiseAmount: p ? p.amount.toString() : sample.promiseAmount, promiseDate: p ? formatDate(p.deadlineDate) : sample.promiseDate, nextDueDate: next?.d ? formatDate(next.d) : "—", nextDueAmount: next?.a ? next.a.toString() : "—", branch: c.branch };
+  const overdueLoan = [...c.loans].filter((l) => Number(l.totalOverdue) > 0).sort((a, b) => (a.oldestUnpaidDueDate?.getTime() ?? 0) - (b.oldestUnpaidDueDate?.getTime() ?? 0))[0] ?? c.loans[0];
+  return { ...sample, agentName, customerName: c.displayName, overdueAmount: overdue, oldestDueDate: oldest ? formatDate(oldest) : "—", loanRef: overdueLoan?.coreLoanId ?? "—", dpd: String(c.loans.reduce((m, l) => Math.max(m, l.dpd), 0)), promiseAmount: p ? p.amount.toString() : sample.promiseAmount, promiseDate: p ? formatDate(p.deadlineDate) : sample.promiseDate, nextDueDate: next?.d ? formatDate(next.d) : "—", nextDueAmount: next?.a ? next.a.toString() : "—", branch: c.branch };
 }
 
 export function templateText(body: unknown): string {

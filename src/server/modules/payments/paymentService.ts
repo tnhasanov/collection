@@ -96,6 +96,10 @@ export async function ingestIntegrationEvent(prisma: PrismaClient, raw: unknown,
           const stillInArrears = caseState.status === "OPEN" || caseState.status === "HANDOVER";
           if (!stillInArrears) {
             work = await invalidateObsoleteWork(tx, loan.customerId, "PAID_ARREARS_CLEARED", now, { sourceEventId: input.sourceEventId, correlationId: input.correlationId ?? null });
+            // A conversation in progress learns immediately that the overdue is cleared, so the agent records
+            // "Overdue cleared during the call" (Gecikmə bağlanıb) instead of a promise or a retry.
+            const live = await tx.routingReservation.findFirst({ where: { customerId: loan.customerId, status: { in: ["CONNECTED", "WRAP_UP"] } } });
+            if (live) await enqueueOutbox(tx, "agent.notify", { agentUserId: live.agentUserId, reservationId: live.id, kind: "PAYMENT_CLEARED_DURING_CALL", message: `Verified payment ${amount.toFixed(2)} AZN posted on ${loan.coreLoanId}: overdue cleared (Gecikmə bağlanıb). Record "Overdue cleared during the call" as the outcome; no promise is needed.` }, `notify:${live.id}:${input.sourceEventId}`, input.correlationId ?? null);
           } else {
             const open = await tx.workItem.findMany({ where: { customerId: loan.customerId, type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } }, select: { id: true } });
             for (const wi of open) await refreshWorkItemEligibility(tx, wi.id, now);

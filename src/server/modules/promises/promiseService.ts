@@ -46,6 +46,8 @@ export interface CreatePromiseInput {
   lastRpcAt: Date | null;
   supersedeReason?: string | null;
   scopeDescription?: string | null;
+  /** Approved promise-date exception (S11): the horizon check is bypassed and the approval is recorded on the promise. */
+  policyException?: { approvalId: string; approvedBy: string } | null;
 }
 
 /** One active promise per covered obligation set; no silent extension; history preserved. */
@@ -58,7 +60,7 @@ export async function createPromise(db: Db, input: CreatePromiseInput) {
   if (!input.customerConfirmed) throw badRequest("The customer must explicitly confirm the amount and date; consent is never preselected");
   const promisePolicy = await getPromisePolicy(db);
   const horizon = promiseHorizonCheck(input.deadlineDate, input.now, promisePolicy);
-  if (!horizon.ok) throw conflict(`Deadline is outside the promise horizon (max ${promisePolicy.maxHorizonDays} days, until ${horizon.maxDate}); record a proposed exception instead of a promise`, { code: "PROMISE_HORIZON", maxDate: horizon.maxDate });
+  if (!horizon.ok && !input.policyException) throw conflict(`Deadline is outside the promise horizon (max ${promisePolicy.maxHorizonDays} days, until ${horizon.maxDate}); record a proposed exception instead of a promise`, { code: "PROMISE_HORIZON", maxDate: horizon.maxDate });
   const loans = await db.loan.findMany({ where: { id: { in: input.coveredLoanIds }, customerId: input.customerId } });
   if (loans.length !== input.coveredLoanIds.length || loans.length === 0) throw badRequest("Covered loans must belong to the customer");
   const policy = await getContactPolicy(db);
@@ -102,14 +104,14 @@ export async function createPromise(db: Db, input: CreatePromiseInput) {
       qualifyingWindowEnd: windowEnd,
       settlementAllowanceDays: allowanceDays,
       suppressionUntil,
-      reminderPlan: { smsBeforeDeadlineDays: 1, template: "PTP-REMINDER-01", channelLimitsApply: true, calendarRule: promisePolicy.deadlineCalendarRule } as never,
+      reminderPlan: { smsBeforeDeadlineDays: 1, template: "PTP-REMINDER-01", channelLimitsApply: true, calendarRule: promisePolicy.deadlineCalendarRule, policyException: input.policyException ?? null } as never,
       policyVersionId: `${policy.code}/${policy.version}`,
       previousPromiseId: clash[0]?.id ?? null,
       events: { create: { type: "CREATED", toStatus: "ACTIVE", actorUserId: input.createdByUserId, data: { amount: amount.toFixed(2), deadline: input.deadlineDate, coveredLoanIds: input.coveredLoanIds, customerConfirmed: input.customerConfirmed } as never } },
     },
   });
   const reminders = await scheduleReminders(db, promise, input.now);
-  await appendAudit(db, { actorUserId: input.createdByUserId, action: "promise.created", objectType: "Promise", objectId: promise.id, customerId: input.customerId, caseId: input.caseId, changes: { amount: amount.toFixed(2), deadline: input.deadlineDate, suppressionUntil, settlementAllowanceDays: allowanceDays, reminders, policyVersion: promise.policyVersionId } });
+  await appendAudit(db, { actorUserId: input.createdByUserId, action: "promise.created", objectType: "Promise", objectId: promise.id, customerId: input.customerId, caseId: input.caseId, changes: { amount: amount.toFixed(2), deadline: input.deadlineDate, suppressionUntil, settlementAllowanceDays: allowanceDays, reminders, policyVersion: promise.policyVersionId, policyException: input.policyException ?? null, horizon: { ok: horizon.ok, maxDate: horizon.maxDate } } });
   return promise;
 }
 

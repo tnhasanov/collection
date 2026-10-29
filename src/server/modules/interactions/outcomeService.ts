@@ -7,8 +7,10 @@ import { enqueueOutbox } from "@/server/modules/outbox/outbox";
 import { getContactPolicy } from "@/server/modules/settings/settingsService";
 import { nextPermittedTime, ptpProtectionEnd, rpcCooldownEnd } from "@/server/modules/contactPolicy/evaluator";
 import type { ContactPolicyConfig } from "@/server/modules/contactPolicy/types";
-import { createPromise } from "@/server/modules/promises/promiseService";
-import { completeWorkItem, createCallbackWorkItem, ensureTaskWorkItem, refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
+import { createPromise, getPromisePolicy, promiseHorizonCheck, type PromisePolicy } from "@/server/modules/promises/promiseService";
+import { cancelReminders } from "@/server/modules/promises/reminderService";
+import { syncCustomerCase } from "@/server/modules/cases/caseService";
+import { completeWorkItem, createCallbackWorkItem, ensureTaskWorkItem, invalidateObsoleteWork, refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 import { PROVIDER_DISPOSITION_MAP } from "@/server/modules/dialer/contract";
 import { outcomeSchema, validateOutcomeBusinessRules, type DraftInput, type OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
 import { buildFactualSummary, deriveCoverage, NEXT_ACTION_LABELS, type Coverage, type SummaryCustomerContext } from "@/server/modules/interactions/summary";
@@ -35,7 +37,7 @@ export interface NextActionPreview {
 }
 
 /** Pure next-action computation shared by the preview endpoint and the save path. */
-export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null; customer?: SummaryCustomerContext | null }): NextActionPreview {
+export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null; customer?: SummaryCustomerContext | null; promisePolicy?: PromisePolicy | null }): NextActionPreview {
   const errors = validateOutcomeBusinessRules(input);
   const { coverage, coveredOverdue, derivedOutcome } = deriveCoverage(input, ctx.customer ?? null);
   const rpc = input.identityStatus === "RPC_VERIFIED";
@@ -92,9 +94,28 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
         break;
       case "SPECIAL_REFERRAL":
         nextAction = "SPECIAL_REFERRAL";
-        referral = "Special-case handling (legal / deceased notification)";
-        summary = "Special-case referral; no routine calls";
+        referral = input.support?.type === "DECEASED_LEGAL" ? "Death reported (unconfirmed): verification task for a lead/head; routine contact stops until the report is confirmed or rejected" : "Special-case handling (legal / deceased notification)";
+        summary = input.support?.type === "DECEASED_LEGAL" ? "Deceased notification recorded as REPORTED; verification required before any status change" : "Special-case referral; no routine calls";
         break;
+      case "DELINQUENCY_CLOSED": {
+        nextAction = "COOLDOWN";
+        const overdue = ctx.customer ? Number(ctx.customer.overdueDueNow) : 0;
+        if (overdue > 0) errors.push(`Overdue is still ${ctx.customer!.overdueDueNow} AZN on the fresh snapshot; "Overdue cleared" can be recorded only after the verified posting arrives`);
+        summary = "Arrears cleared by a verified core posting during the conversation; the collection episode closes (Gecikmə bağlanıb). No promise, reminder or retry.";
+        digitalReminders = "None: no arrears remain";
+        break;
+      }
+      case "PTP_EXCEPTION_PROPOSED": {
+        nextAction = "COOLDOWN";
+        if (input.ptp && ctx.promisePolicy) {
+          const h = promiseHorizonCheck(input.ptp.deadlineDate as never, ctx.now, ctx.promisePolicy);
+          if (h.ok) errors.push(`The proposed date is within the promise policy (until ${h.maxDate}); record a normal promise instead of an exception`);
+        }
+        referral = "Promise-date exception sent to a team lead for approval; no promise, reminder or protection exists until it is approved";
+        summary = `Verified-contact cooldown (${ctx.policy.rpcCooldownHours}h) while the proposed exception awaits a decision`;
+        digitalReminders = "No PTP reminder until the exception is approved";
+        break;
+      }
       default:
         nextAction = "COOLDOWN";
     }
@@ -146,7 +167,8 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   if (interaction.status === "OPEN") throw conflict("The call is still active; end the call before saving the final outcome", { code: "CALL_ACTIVE" });
   const policy = await getContactPolicy(db);
   const summaryCtx = await summaryContextFor(db, interaction.customerId);
-  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult, customer: summaryCtx });
+  const promisePolicy = await getPromisePolicy(db);
+  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult, customer: summaryCtx, promisePolicy });
   const hardErrors = preview.errors.filter((e) => !e.startsWith("Requested callback time is outside"));
   if (hardErrors.length) throw unprocessable("Outcome is not valid", { errors: hardErrors });
   // Coverage (full/partial) is derived from bank-verified obligations, never chosen by the agent.
@@ -219,9 +241,30 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   }
   if ((input.businessOutcome === "SUPPORT_NEEDED" || input.businessOutcome === "SPECIAL_REFERRAL") && input.support && caseId) {
     const special = input.support.type === "SPECIAL_HANDLING" || input.support.type === "DECEASED_LEGAL";
-    const sc = await db.supportCase.create({ data: { customerId: interaction.customerId, caseId, type: input.support.type, status: "OPEN", reason: input.support.reason, interactionId: interaction.id, createdBy: params.actorUserId, restrictionUntil: special ? null : addHours(params.now, 14 * 24), restrictsCalls: true, slaDueAt: addHours(params.now, 5 * 24) } });
-    await ensureTaskWorkItem(db, { customerId: interaction.customerId, caseId, type: special ? "HANDOVER" : "SUPPORT_REVIEW", dueAt: addHours(params.now, 5 * 24), ownerUserId: null, reason: input.support.reason, sourceInteractionId: interaction.id, requiredSkill: special ? "SENIOR" : null });
+    const deceased = input.support.type === "DECEASED_LEGAL";
+    const reportSource = input.support.reportSource ?? (input.identityStatus === "THIRD_PARTY" ? "THIRD_PARTY_CALL" : rpc ? "CUSTOMER_LINE_CALL" : "CALL");
+    const sc = await db.supportCase.create({ data: { customerId: interaction.customerId, caseId, type: input.support.type, status: "OPEN", reason: input.support.reason, interactionId: interaction.id, createdBy: params.actorUserId, restrictionUntil: special ? null : addHours(params.now, 14 * 24), restrictsCalls: true, slaDueAt: addHours(params.now, deceased ? 2 * 24 : 5 * 24), reporterRelation: deceased ? input.support.reporterRelation ?? null : null, reportSource: deceased ? reportSource : null } });
+    await ensureTaskWorkItem(db, { customerId: interaction.customerId, caseId, type: special ? "HANDOVER" : "SUPPORT_REVIEW", dueAt: addHours(params.now, deceased ? 2 * 24 : 5 * 24), ownerUserId: null, reason: deceased ? `Vəfat barədə məlumat (reported by ${input.support.reporterRelation ?? "unknown"}): verify before any status change. ${input.support.reason}` : input.support.reason, sourceInteractionId: interaction.id, requiredSkill: special ? "SENIOR" : null });
+    if (deceased) {
+      // Reported, not confirmed: the customer is marked as notified, routine outreach stops immediately, reminders
+      // are cancelled and a verification exception goes to a lead/head who confirms or rejects the report.
+      await db.customer.update({ where: { id: interaction.customerId }, data: { status: "DECEASED_NOTIFIED" } });
+      await db.exceptionCase.upsert({ where: { dedupKey: `DECEASED_VERIFICATION:${interaction.customerId}` }, create: { dedupKey: `DECEASED_VERIFICATION:${interaction.customerId}`, type: "DECEASED_VERIFICATION", severity: "CRITICAL", customerId: interaction.customerId, caseId, title: `Vəfat barədə məlumat: death reported by ${(input.support.reporterRelation ?? "unknown").toLowerCase().replace(/_/g, " ")} via ${reportSource.toLowerCase().replace(/_/g, " ")}; verification required`, evidence: { supportCaseId: sc.id, interactionId: interaction.id, reporterRelation: input.support.reporterRelation ?? null, reportSource } as never, slaDueAt: addHours(params.now, 2 * 24) }, update: { lastSeenAt: params.now, status: "REOPENED" } });
+      effects.deceasedWork = await invalidateObsoleteWork(db, interaction.customerId, "DECEASED_REPORTED", params.now, { correlationId: interaction.correlationId });
+      const promises = await db.promise.findMany({ where: { customerId: interaction.customerId, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"] } }, select: { id: true } });
+      for (const p of promises) await cancelReminders(db, p.id, "Death reported; reminders paused pending verification", params.now);
+    }
     effects.supportCaseId = sc.id;
+  }
+  if (input.businessOutcome === "PTP_EXCEPTION_PROPOSED" && input.ptp && caseId) {
+    // Out-of-policy promise date: nothing is promised yet. A lead/head decides; approval creates the promise.
+    const h = promiseHorizonCheck(input.ptp.deadlineDate as never, params.now, promisePolicy);
+    const ar = await db.approvalRequest.create({ data: { type: "PTP_EXCEPTION", status: "PENDING", makerUserId: params.actorUserId, objectType: "Interaction", objectId: interaction.id, title: `Promise-date exception: ${input.ptp.amount} AZN by ${input.ptp.deadlineDate} (${interaction.customer.displayName})`, rationale: input.note?.trim() || `Customer proposed a date ${h.daysAhead} days ahead (policy maximum ${promisePolicy.maxHorizonDays} days, until ${h.maxDate}). Reason: ${input.nonPaymentReason ?? "not stated"}.`, afterJson: { customerId: interaction.customerId, caseId, interactionId: interaction.id, amount: input.ptp.amount, deadlineDate: input.ptp.deadlineDate, coveredLoanIds: input.ptp.coveredLoanIds, customerConfirmed: input.ptp.customerConfirmed, agentUserId: params.actorUserId, lastRpcAt: params.now.toISOString() } as never, evidenceJson: { horizon: h, policy: promisePolicy } as never } });
+    effects.ptpExceptionApprovalId = ar.id;
+  }
+  if (input.businessOutcome === "DELINQUENCY_CLOSED") {
+    // The verified posting already cured the case through ingestion; re-sync defensively and record the closure.
+    effects.case = await syncCustomerCase(db, interaction.customerId, params.now, { actorService: "outcome-service" });
   }
   // Independent flags create owned follow-up tasks without erasing the primary outcome.
   for (const flag of input.secondaryFlags ?? []) {
@@ -249,7 +292,7 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   // Customer-wide effects: any other open voice work for this customer is re-evaluated under the new facts.
   const otherVoice = await db.workItem.findMany({ where: { customerId: interaction.customerId, type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } }, select: { id: true } });
   for (const wi of otherVoice) await refreshWorkItemEligibility(db, wi.id, params.now);
-  if (rpc && caseId && !["PTP", "PARTIAL_COMMITMENT", "CALLBACK_REQUESTED", "ALREADY_PAID_CLAIM", "DISPUTE", "SUPPORT_NEEDED", "SPECIAL_REFERRAL"].includes(input.businessOutcome)) {
+  if (rpc && caseId && !["PTP", "PARTIAL_COMMITMENT", "CALLBACK_REQUESTED", "ALREADY_PAID_CLAIM", "DISPUTE", "SUPPORT_NEEDED", "SPECIAL_REFERRAL", "DELINQUENCY_CLOSED"].includes(input.businessOutcome)) {
     // Keep a routine CALL item so the customer resurfaces after the cooldown (deferred, not cancelled).
     const existing = await db.workItem.findFirst({ where: { customerId: interaction.customerId, type: "CALL", status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } } });
     if (!existing) {

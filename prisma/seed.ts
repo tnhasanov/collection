@@ -5,6 +5,7 @@ import { seedReference } from "./seed/reference";
 import { seedPortfolio } from "./seed/portfolio";
 import { seedScenarios, seedScenarioHistory } from "./seed/scenarios";
 import { restateLoansAndCases, runDecisionsAndTasks, setDemoClock } from "./seed/finalize";
+import { seedPilotReference } from "./seed/pilotReference";
 
 /**
  * Deterministic synthetic dataset for ATB Collections (DEMO mode).
@@ -35,6 +36,8 @@ export async function seedDatabase(prisma: ReturnType<typeof createPrismaClient>
   console.log("6/6 daily decision run, tasks and demo clock");
   const summary = await runDecisionsAndTasks(prisma);
   await setDemoClock(prisma);
+  console.log("    pilot reference (payment-instruction templates, related parties)");
+  await seedPilotReference(prisma);
 
   const [customers, loans, cases, workItems, interactions, promises] = await Promise.all([
     prisma.customer.count(),
