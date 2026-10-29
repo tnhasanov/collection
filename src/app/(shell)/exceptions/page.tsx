@@ -58,7 +58,7 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
         </table>
       </Card>
       {sel && (
-        <Card className="mt-3" title={sel.title} subtitle={`${sel.type} · ${sel.severity} · ${sel.status}${sel.resolution ? ` · resolution: ${sel.resolution}` : ""}`} actions={canManage ? <ExceptionActions id={sel.id} status={sel.status} type={sel.type} /> : null}>
+        <Card className="mt-3" title={sel.title} subtitle={`${sel.type} · ${sel.severity} · ${sel.status}${sel.resolution ? ` · resolution: ${sel.resolution}` : ""}`} actions={canManage ? <ExceptionActions id={sel.id} status={sel.status} type={sel.type} supportCaseId={(sel.evidence as { supportCaseId?: string } | null)?.supportCaseId ?? null} canConfirmSpecial={hasPermission(user.role, "special-case.confirm")} /> : null}>
           <div className="grid gap-3 md:grid-cols-3 text-sm">
             <div><h3 className="font-bold">Evidence</h3><pre className="mt-1 max-h-60 overflow-auto rounded bg-canvas p-2 text-xs">{JSON.stringify(sel.evidence, null, 2)}</pre></div>
             <div><h3 className="font-bold">Affected outreach</h3><pre className="mt-1 max-h-60 overflow-auto rounded bg-canvas p-2 text-xs">{JSON.stringify(sel.affectedOutreach ?? { note: "Only affected activity is blocked; see customer eligibility" }, null, 2)}</pre></div>

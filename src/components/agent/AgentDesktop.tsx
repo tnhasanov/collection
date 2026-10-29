@@ -1,17 +1,17 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Callout, Card, Toast } from "@/components/ui";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { fmtAzn, fmtDate, fmtDateTime, fmtDuration, humanize } from "@/lib/format";
+import { Button, Callout, Card, Toast } from "@/components/ui";
+import { fmtDateTime, humanize } from "@/lib/format";
+import { t, type Locale } from "@/i18n/dictionaries";
 import type { AgentContext, OutcomeDraft } from "@/components/agent/types";
 import { api, useAgentStream } from "@/components/agent/useAgentStream";
-import { AvailabilityBar } from "@/components/agent/AvailabilityBar";
+import { CompactHeader, type CallAction, type Mode } from "@/components/agent/CompactHeader";
 import { HomePanels } from "@/components/agent/HomePanels";
-import { CustomerContext } from "@/components/agent/CustomerContext";
+import { DetailsTabs } from "@/components/agent/DetailsTabs";
 import { ScriptPanel } from "@/components/agent/ScriptPanel";
 import { OutcomeForm, type PreviewResult } from "@/components/agent/OutcomeForm";
 import { AfterCallWork } from "@/components/agent/AfterCallWork";
-import { ReviewStrip } from "@/components/agent/ReviewStrip";
+import { ActionBar } from "@/components/agent/ActionBar";
 
 export interface AgentUser {
   id: string;
@@ -22,9 +22,16 @@ export interface AgentUser {
   manualDialAllowed: boolean;
 }
 
-export function AgentDesktop({ initial, user, focus }: { initial: AgentContext | null; user: AgentUser; focus?: "home" | "call" }) {
+/**
+ * Agent workspace (S28): one compact header for every state, the script and structured answers as the main
+ * reading area, details in tabs on the right, and a sticky action bar for the single final save. All timers are
+ * anchored on the server clock; every state shown is provider-confirmed; diagnostics are hidden from agents.
+ */
+export function AgentDesktop({ initial, user, focus, locale, showDiagnostics }: { initial: AgentContext | null; user: AgentUser; focus?: "home" | "call"; locale: Locale; showDiagnostics: boolean }) {
+  const tt = (k: string, v?: Record<string, string | number>) => t(locale, k, v);
   const { ctx, connected, serverNow, refreshFull } = useAgentStream(initial);
   const [busy, setBusy] = useState(false);
+  const [controlBusy, setControlBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: "info" | "success" | "danger" | "warning" } | null>(null);
   const [draft, setDraft] = useState<OutcomeDraft>({});
   const [draftFor, setDraftFor] = useState<string | null>(null);
@@ -32,11 +39,10 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(id);
   }, []);
   // Hydrate the recoverable draft from the backend when a new interaction appears (refresh/reconnect safe).
-  // (React "adjust state when a prop changes" pattern: runs during render, no effect needed.)
   const currentInteraction = ctx?.interaction ?? null;
   if ((currentInteraction?.id ?? null) !== draftFor) {
     setDraftFor(currentInteraction?.id ?? null);
@@ -45,14 +51,14 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
   }
   useEffect(() => {
     if (!toast) return;
-    const id = setTimeout(() => setToast(null), 5000);
+    const id = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(id);
   }, [toast]);
   const latestNotification = ctx?.notifications?.[0] ?? null;
   const [notifiedId, setNotifiedId] = useState<string | null>(null);
   if (latestNotification && latestNotification.id !== notifiedId) {
     setNotifiedId(latestNotification.id);
-    setToast({ message: latestNotification.message, tone: "info" });
+    setToast({ message: latestNotification.message, tone: latestNotification.kind === "PAYMENT_CLEARED_DURING_CALL" ? "success" : "info" });
   }
   useEffect(() => {
     if (!latestNotification) return;
@@ -65,28 +71,29 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
   const confirmed = session?.confirmedState ?? "OFFLINE";
   const verified = draft.identityStatus === "RPC_VERIFIED";
   const thirdParty = draft.identityStatus === "THIRD_PARTY";
+  const say = (message: string, tone: "info" | "success" | "danger" | "warning" = "info") => setToast({ message, tone });
 
   async function connect() {
     setBusy(true);
     const r = await api("/api/agent/session");
     setBusy(false);
-    if (!r.ok) setToast({ message: r.error.message, tone: "danger" });
+    if (!r.ok) say(r.error.message, "danger");
     else await refreshFull();
   }
   async function changeState(state: "READY" | "NOT_READY" | "BREAK" | "OFFLINE", reason?: string) {
     setBusy(true);
     const r = await api<{ deferred: boolean }>("/api/agent/state", { state, reason: reason ?? null });
     setBusy(false);
-    if (!r.ok) setToast({ message: r.error.message, tone: "danger" });
-    else if (r.data.deferred) setToast({ message: `${humanize(state)} will apply after the required wrap-up.`, tone: "warning" });
-    else setToast({ message: `${humanize(state)} requested; waiting for provider confirmation.`, tone: "info" });
+    if (!r.ok) say(r.error.message, "danger");
+    else if (r.data.deferred) say(`${tt(`agent.states.${state}`)}: ${tt("agent.breakAfterWrap").toLowerCase()}`, "warning");
     if (state === "OFFLINE" && r.ok && !r.data.deferred) setTimeout(() => void refreshFull(), 1500);
   }
-  async function control(action: "MUTE" | "UNMUTE" | "HOLD" | "RESUME" | "END") {
+  async function control(action: CallAction) {
     if (!interaction) return;
-    const r = await api("/api/agent/call-control", { interactionId: interaction.id, action });
-    if (!r.ok) setToast({ message: r.error.message, tone: "danger" });
-    else setToast({ message: `${humanize(action)} requested from the provider`, tone: "info" });
+    setControlBusy(action);
+    const r = await api<{ status: string; pending?: boolean }>("/api/agent/call-control", { interactionId: interaction.id, action });
+    setControlBusy(null);
+    if (!r.ok) say(r.error.message, "danger");
   }
 
   const callElapsed = useMemo(() => {
@@ -100,9 +107,9 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
     return interaction?.acwStartedAt ? Math.round((serverNow().getTime() - new Date(interaction.acwStartedAt).getTime()) / 1000) : 0;
   }, [tick, interaction, serverNow]);
 
-  if (!ctx) return <p className="text-muted">Loading agent workspace…</p>;
+  if (!ctx) return <p className="text-muted">{tt("common.loading")}</p>;
 
-  const mode: "connect" | "home" | "dialing" | "live" | "acw" | "wrapup" | "recovery" =
+  const mode: Mode =
     !session || !session.id
       ? "connect"
       : interaction && interaction.status === "OPEN"
@@ -116,141 +123,81 @@ export function AgentDesktop({ initial, user, focus }: { initial: AgentContext |
                 ? "dialing"
                 : "recovery"
               : "home";
+  const controlState = interaction?.controlState ?? null;
+  const overdueCleared = mode === "live" && !!ctx.customer && Number(ctx.customer.summary.overdueDueNow) <= 0;
+
+  if (mode === "connect") {
+    return (
+      <div className="space-y-3">
+        <Toast message={toast?.message ?? null} tone={toast?.tone} />
+        <Card title={tt("agent.workspace")} subtitle={tt("agent.connectHint")}>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="primary" onClick={connect} disabled={busy} data-testid="connect-dialer">{busy ? tt("agent.connecting") : tt("agent.connect")}</Button>
+            <span className="text-xs text-muted">{user.displayName} · {user.roleLabel} · {user.teamName ?? "—"} · {user.languages.join("/")}</span>
+          </div>
+          {!ctx.workerOnline && <Callout tone="danger" className="mt-3">{tt("agent.workerOffline")}</Callout>}
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
       <Toast message={toast?.message ?? null} tone={toast?.tone} />
-      {mode === "connect" ? (
+      <CompactHeader ctx={ctx} locale={locale} mode={mode} user={user} serverNow={serverNow} busy={busy} onState={changeState} onControl={control} controlBusy={controlBusy} showDiagnostics={showDiagnostics} callElapsed={callElapsed} verified={verified} />
+      {!connected && <Callout tone="warning">{tt("agent.reconnecting")}</Callout>}
+      {confirmed === "CONNECTION_PROBLEM" && <Callout tone="danger">{tt("agent.connectionProblem")} {session?.stateReason}</Callout>}
+      {!ctx.workerOnline && mode !== "home" && <Callout tone="danger">{tt("agent.workerOffline")}</Callout>}
+      {controlState?.lastError && (mode === "live" || mode === "dialing") && (
+        <Callout tone="danger">
+          {tt("agent.alerts.controlError", { error: controlState.lastError })} · {tt("agent.controls.forceEndHint")}
+          {showDiagnostics && controlState.lastErrorAt ? ` (${fmtDateTime(controlState.lastErrorAt, true)})` : ""}
+        </Callout>
+      )}
+      {overdueCleared && <Callout tone="success" className="font-medium" data-testid="overdue-cleared-banner">{tt("agent.alerts.overdueCleared")}</Callout>}
+      {mode === "recovery" && <Callout tone="warning">{tt("agent.alerts.recovery")}</Callout>}
+
+      {(mode === "dialing" || mode === "live") && ctx.customer && (
         <>
-          <PageHeader kicker="S28A / my collection workspace" title="My collection workspace" lead="Connect to the dialer to receive automatically assigned calls." />
-          <Card title="Phone & connection" subtitle="Mapped extension and provider identity are confirmed by the CTI adapter (mock provider in DEMO)">
-            <p className="text-sm">Sign in to the dialer to map your extension and join your authorized campaign queues. Ready is confirmed only when the provider confirms it.</p>
-            <div className="mt-3">
-              <Button variant="primary" onClick={connect} disabled={busy}>
-                {busy ? "Connecting…" : "Connect to dialer"}
-              </Button>
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+            <div className="space-y-3">
+              <Card>
+                <ScriptPanel ctx={ctx} locale={locale} verified={verified} thirdParty={thirdParty} agentName={user.displayName} showDiagnostics={showDiagnostics} />
+              </Card>
+              <Card title={tt("agent.tabs.responses")}>
+                {mode === "live" && interaction ? <OutcomeForm ctx={ctx} locale={locale} draft={draft} onChange={setDraft} onPreview={setPreview} serverNow={serverNow} /> : <p className="text-sm text-muted">{tt("agent.callModes.dialing")}…</p>}
+              </Card>
             </div>
-            {!ctx.workerOnline && <Callout tone="danger" className="mt-3">The background worker is offline. Provider commands (state changes, dials, wrap-ups) are queued but will not execute until <code>npm run worker</code> runs.</Callout>}
-          </Card>
-        </>
-      ) : (
-        <>
-          {mode === "home" && <PageHeader kicker="S28A / my collection workspace" title="My collection workspace" lead={`My campaign: ${session?.campaignCodes.join(", ") || "—"} - automatic call assignment after confirmed Ready.`} />}
-          {mode === "dialing" && <PageHeader kicker="S28B / reserved" title="Reserved - dialing customer" lead={`Call ${reservation?.correlationId} / automatically assigned to ${user.displayName} / one active voice interaction.`} />}
-          {mode === "live" && <PageHeader kicker="S28B / live customer conversation" title="Live customer conversation" lead={`Call ${interaction?.correlationId} / automatically assigned to ${user.displayName} / one active voice interaction.`} />}
-          {mode === "acw" && <PageHeader kicker="S28C / after-call work" title="After-call work" lead="Call ended / outcome required before the next automatically assigned voice call." />}
-          {mode === "wrapup" && <PageHeader kicker="S28C / wrap-up synchronization" title="Wrap-up pending acknowledgment" lead="Outcome saved. The provider has not yet acknowledged the wrap-up." />}
-          {mode === "recovery" && <PageHeader kicker="S28B / recovery" title="Call context recovering" lead="A reservation exists but the customer screen is not ready. Provider controls stay available; routing is paused." />}
-
-          <AvailabilityBar ctx={ctx} serverNow={serverNow} onAction={changeState} busy={busy} user={user} />
-          {!connected && <Callout tone="warning">Live stream reconnecting; falling back to polling. Your session state is restored from the server, not from this browser.</Callout>}
-          {confirmed === "CONNECTION_PROBLEM" && <Callout tone="danger">Provider connectivity problem: new allocation is paused. Existing voice continues on the PBX. {session?.stateReason}</Callout>}
-
-          {(mode === "dialing" || mode === "live" || mode === "recovery") && (
-            <section className="card card-pad flex flex-wrap items-center gap-3" aria-label="Call strip">
-              <Badge tone={mode === "live" ? "success" : "info"}>
-                {mode === "live" ? `Connected / ${fmtDuration(callElapsed)}` : reservation?.attempt?.ringingAt ? `Ringing / ${fmtDuration(callElapsed)}` : reservation?.status === "DIALING" ? `Dialing / ${fmtDuration(callElapsed)}` : "Reserved / awaiting provider"}
-              </Badge>
-              <span className="text-sm text-muted">
-                {ctx.customer?.loans.map((l) => l.coreLoanId).join(", ")} / {ctx.customer?.customer.id ?? "—"} / {reservation?.maskedNumber ?? "number masked"} / {reservation?.campaignCode} / provider-confirmed call state
-              </span>
-              {reservation?.withdrawalStatus === "REQUESTED" && <Badge tone="warning">Withdrawal requested (payment before dial)</Badge>}
-              <div className="ml-auto flex gap-2">
-                <Button size="sm" disabled={mode !== "live"} onClick={() => control("MUTE")}>
-                  Mute
-                </Button>
-                <Button size="sm" disabled={mode !== "live"} onClick={() => control("HOLD")}>
-                  Hold
-                </Button>
-                <Button size="sm" disabled title="Transfer is not supported by the mock provider">
-                  Transfer
-                </Button>
-                <Button size="sm" variant="danger" disabled={mode !== "live"} onClick={() => control("END")}>
-                  End
-                </Button>
-              </div>
-            </section>
-          )}
-
-          {(mode === "dialing" || mode === "live") && ctx.customer && (
-            <>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <div className="kpi">
-                  <span className="kpi-label">Overdue now</span>
-                  <span className="kpi-value">{fmtAzn(ctx.customer.summary.overdueDueNow, false)}</span>
-                  <span className="kpi-note">AZN - oldest due {fmtDate(ctx.customer.loans.find((l) => l.oldestUnpaidDueDate)?.oldestUnpaidDueDate ?? null)}</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-label">Principal outstanding</span>
-                  <span className="kpi-value">{fmtAzn(ctx.customer.summary.principalOutstanding, false)}</span>
-                  <span className="kpi-note">AZN - authoritative projection</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-label">Current DPD</span>
-                  <span className="kpi-value">{ctx.customer.summary.maxDpd}</span>
-                  <span className="kpi-note">All related loans visible</span>
-                </div>
-                <div className="kpi">
-                  <span className="kpi-label">Next installment</span>
-                  <span className="kpi-value">{ctx.customer.summary.nextDue ? fmtDate(ctx.customer.summary.nextDue.date) : "—"}</span>
-                  <span className="kpi-note">{ctx.customer.summary.nextDue ? `${fmtAzn(ctx.customer.summary.nextDue.amount, false)} AZN / regular annuity` : ""}</span>
-                </div>
-              </div>
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)]">
-                <Card>
-                  <CustomerContext ctx={ctx} verified={verified} />
-                </Card>
-                <Card>
-                  <ScriptPanel ctx={ctx} verified={verified} thirdParty={thirdParty} agentName={user.displayName} />
-                </Card>
-                <Card title="Responses" subtitle="Quick choices while you talk; nothing is preselected">
-                  {mode === "live" && interaction ? <OutcomeForm ctx={ctx} draft={draft} onChange={setDraft} onPreview={setPreview} serverNow={serverNow} /> : <p className="text-sm text-muted">Responses open when the customer is connected.</p>}
-                </Card>
-              </div>
-              {mode === "live" && interaction && <ReviewStrip ctx={ctx} draft={draft} preview={preview} callActive onSaved={() => void refreshFull()} />}
-            </>
-          )}
-
-          {mode === "recovery" && <Callout tone="warning">Correlation {reservation?.correlationId}. Do not use data from any other customer. If the call connects, use the provider controls; the context will load when the trusted ids resolve.</Callout>}
-
-          {mode === "acw" && ctx.customer && interaction && (
-            <AfterCallWork
-              ctx={ctx}
-              draft={draft}
-              setDraft={setDraft}
-              preview={preview}
-              setPreview={setPreview}
-              serverNow={serverNow}
-              acwElapsed={acwElapsed}
-              onSaved={() => {
-                setToast({ message: "Outcome saved; synchronizing provider wrap-up.", tone: "success" });
-                void refreshFull();
-              }}
-            />
-          )}
-
-          {mode === "wrapup" && interaction && (
-            <Card title="Wrap-up synchronization" subtitle="Business save succeeded; provider acknowledgment is a separate state">
-              <dl className="dl-grid">
-                <dt>Interaction</dt>
-                <dd>{interaction.correlationId}</dd>
-                <dt>Business outcome</dt>
-                <dd className="text-success">Saved at {fmtDateTime(interaction.savedAt, true)}</dd>
-                <dt>Provider wrap-up</dt>
-                <dd className={interaction.wrapUpStatus === "FAILED" ? "text-danger" : "text-warning"}>{interaction.wrapUpStatus === "FAILED" ? "Not acknowledged - retrying idempotently; supervisor can assist" : "Pending acknowledgment"}</dd>
-                <dt>Next voice assignment</dt>
-                <dd className="text-warning">Blocked until confirmed</dd>
-              </dl>
-              {!ctx.workerOnline && <Callout tone="danger" className="mt-3">The background worker is offline; the wrap-up command is queued in the outbox.</Callout>}
+            <Card>
+              <DetailsTabs ctx={ctx} locale={locale} verified={verified} showDiagnostics={showDiagnostics} onToast={say} onSent={() => void refreshFull()} />
             </Card>
-          )}
+          </div>
+          {mode === "live" && interaction && <ActionBar ctx={ctx} locale={locale} draft={draft} preview={preview} callActive onSaved={() => void refreshFull()} />}
+        </>
+      )}
 
-          {mode === "home" && (
-            <>
-              {focus === "call" && <Callout tone="info">No active call. The next eligible customer is allocated automatically once you are confirmed Ready.</Callout>}
-              <HomePanels ctx={ctx} />
-            </>
-          )}
+      {mode === "acw" && ctx.customer && interaction && (
+        <AfterCallWork ctx={ctx} locale={locale} draft={draft} setDraft={setDraft} preview={preview} setPreview={setPreview} serverNow={serverNow} acwElapsed={acwElapsed} showDiagnostics={showDiagnostics} onToast={say} onRefresh={() => void refreshFull()} onSaved={() => { say(tt("agent.acw.savedWaiting"), "success"); void refreshFull(); }} />
+      )}
+
+      {mode === "wrapup" && interaction && (
+        <Card title={tt("agent.wrapup.title")} subtitle={tt("agent.wrapup.lead")}>
+          <dl className="dl-grid">
+            {showDiagnostics && (<><dt>Interaction</dt><dd>{interaction.correlationId}</dd></>)}
+            <dt>{tt("agent.wrapup.business")}</dt>
+            <dd className="text-success">{tt("agent.wrapup.savedAt")} {fmtDateTime(interaction.savedAt, true)} · {interaction.businessOutcome ? tt(`agent.outcomes.${interaction.businessOutcome}`) : humanize(interaction.businessOutcome)}</dd>
+            <dt>{tt("agent.wrapup.provider")}</dt>
+            <dd className={interaction.wrapUpStatus === "FAILED" ? "text-danger" : "text-warning"}>{interaction.wrapUpStatus === "FAILED" ? tt("agent.wrapup.failed") : tt("agent.wrapup.pending")}</dd>
+            <dt>{tt("agent.wrapup.nextVoice")}</dt>
+            <dd className="text-warning">{tt("agent.wrapup.blocked")}</dd>
+          </dl>
+        </Card>
+      )}
+
+      {mode === "home" && (
+        <>
+          {focus === "call" && <Callout tone="info">{tt("agent.alerts.noActiveCall")}</Callout>}
+          <HomePanels ctx={ctx} locale={locale} />
         </>
       )}
     </div>

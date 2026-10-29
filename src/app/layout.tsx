@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/inter/wght.css";
 import "./globals.css";
+import { currentLocale } from "@/i18n/locale";
 
 export const metadata: Metadata = {
   title: { default: "ATB Collections", template: "%s · ATB Collections" },
@@ -7,9 +9,10 @@ export const metadata: Metadata = {
   icons: { icon: "/brand/atb-logo.svg" },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await currentLocale();
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body>{children}</body>
     </html>
   );

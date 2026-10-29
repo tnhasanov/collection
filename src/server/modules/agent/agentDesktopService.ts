@@ -7,6 +7,8 @@ import { getCustomer360 } from "@/server/modules/customers/customerService";
 import { maskNumber, readControlState, type DialerCapabilities } from "@/server/modules/dialer/contract";
 import { ATTRIBUTION_RULE_VERSION, attributedCashForAgent } from "@/server/modules/payments/attribution";
 import type { SessionUser } from "@/server/auth/session";
+import { getPromisePolicy, promiseHorizonCheck } from "@/server/modules/promises/promiseService";
+import { bakuBusinessDate } from "@/server/dates";
 
 /** Capabilities reported by the adapter the worker owns; conservative defaults (end only) when no worker has reported. */
 export async function providerCapabilities(db: Db): Promise<{ mute: boolean; hold: boolean; transfer: boolean; end: boolean; manualDial: boolean; reported: boolean; provider: string | null }> {
@@ -75,6 +77,8 @@ export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, 
   const contact = ctx.reservation ? await db.contactPoint.findUnique({ where: { id: ctx.reservation.contactPointId } }) : null;
   const notifications = await db.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: "desc" }, take: 10 });
   const caps = await providerCapabilities(db);
+  const promisePolicy = await getPromisePolicy(db);
+  const horizon = promiseHorizonCheck(bakuBusinessDate(now), now, promisePolicy);
   const base = {
     serverNow: now,
     session: ctx.session
@@ -90,6 +94,7 @@ export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, 
     script: script ? { id: script.id, code: script.code, version: script.version, language: script.language, title: script.title, body: script.body as { steps: { key: string; title: string; text: string; requires: string }[]; thirdParty: string; branches: { response: string; route: string }[] } } : null,
     notifications: notifications.map((n) => ({ id: n.id, kind: n.kind, message: n.message, createdAt: n.createdAt })),
     capabilities: { ...caps, manualDial: caps.manualDial && !!user.seniority && user.seniority === "SENIOR" },
+    promisePolicy: { maxHorizonDays: promisePolicy.maxHorizonDays, maxDate: horizon.maxDate, deadlineCalendarRule: promisePolicy.deadlineCalendarRule, settlementAllowanceDays: promisePolicy.settlementAllowanceDays },
   };
   if (!opts.full) return base;
   const [metrics, panels] = await Promise.all([agentMetrics(db, user.id, now), agentPanels(db, user.id, now)]);

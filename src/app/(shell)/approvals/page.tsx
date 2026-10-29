@@ -69,7 +69,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
             {selected.validationJson ? <details className="mt-2 text-sm"><summary className="cursor-pointer font-medium">Validation</summary><pre className="max-h-40 overflow-auto rounded bg-canvas p-2 text-xs">{JSON.stringify(selected.validationJson, null, 1)}</pre></details> : null}
             {selected.evidenceJson ? <details className="mt-2 text-sm"><summary className="cursor-pointer font-medium">Evidence / applied effect</summary><pre className="max-h-40 overflow-auto rounded bg-canvas p-2 text-xs">{JSON.stringify(selected.evidenceJson, null, 1)}</pre></details> : null}
             <div className="mt-3">
-              <ApprovalActions id={selected.id} status={selected.status} isMaker={selected.maker.id === user.id} canDecide={canDecide} />
+              <ApprovalActions id={selected.id} status={selected.status} isMaker={selected.maker.id === user.id} canDecide={selected.type === "PTP_EXCEPTION" ? hasPermission(user.role, "ptp-exception.decide") : canDecide} />
             </div>
           </Card>
         ) : <Card><p className="text-sm text-muted">Select a request.</p></Card>}

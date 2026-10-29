@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge, cx } from "@/components/ui";
-import { t, type Locale } from "@/i18n/dictionaries";
+import { LOCALE_COOKIE, SUPPORTED_LOCALES, t, type Locale } from "@/i18n/dictionaries";
 
 export interface TopbarProps {
   locale: Locale;
@@ -22,6 +22,10 @@ export function Topbar(p: TopbarProps) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
+    router.refresh();
+  }
+  function setLocale(code: string) {
+    document.cookie = `${LOCALE_COOKIE}=${code}; path=/; max-age=31536000; samesite=lax`;
     router.refresh();
   }
   async function switchRole(username: string) {
@@ -55,10 +59,20 @@ export function Topbar(p: TopbarProps) {
         {p.freshness.label}
       </Badge>
       {!p.workerOnline && (
-        <Badge tone="danger" title="Background worker heartbeat not seen recently; run `npm run worker`">
-          Worker offline
+        <Badge tone="danger" title="Background worker heartbeat not seen recently">
+          {t(p.locale, "topbar.workerOffline")}
         </Badge>
       )}
+      <label className="sr-only" htmlFor="ui-locale">
+        {t(p.locale, "topbar.language")}
+      </label>
+      <select id="ui-locale" className="select w-auto !min-h-8 py-1 text-xs" value={p.locale} onChange={(e) => setLocale(e.target.value)} aria-label={t(p.locale, "topbar.language")}>
+        {SUPPORTED_LOCALES.map((l) => (
+          <option key={l.code} value={l.code}>
+            {l.label}
+          </option>
+        ))}
+      </select>
       <span className="ml-auto text-xs text-muted" aria-label="Notifications">
         🔔 {p.notifications}
       </span>
@@ -85,7 +99,7 @@ export function Topbar(p: TopbarProps) {
             )}
             {p.mode !== "INTEGRATION" && (
               <a role="menuitem" href="/account/password" className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-brand-light">
-                Change password
+                {t(p.locale, "topbar.changePassword")}
               </a>
             )}
             <button type="button" role="menuitem" className="w-full rounded px-2 py-1 text-left text-sm hover:bg-brand-light" onClick={logout}>

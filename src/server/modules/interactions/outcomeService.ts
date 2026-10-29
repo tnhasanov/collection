@@ -58,6 +58,10 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
       case "PTP":
       case "PARTIAL_COMMITMENT": {
         nextAction = "MONITOR_PTP";
+        if (input.ptp && ctx.promisePolicy && isIsoDate(input.ptp.deadlineDate)) {
+          const h = promiseHorizonCheck(input.ptp.deadlineDate, ctx.now, ctx.promisePolicy);
+          if (!h.ok) errors.push(`The agreed date is outside the promise policy (maximum ${ctx.promisePolicy.maxHorizonDays} days, until ${h.maxDate}); record it as a promise-date exception for approval`);
+        }
         const deadline = input.ptp && isIsoDate(input.ptp.deadlineDate) ? bakuEndOfDay(input.ptp.deadlineDate) : ctx.now;
         ptpProtectionUntil = ptpProtectionEnd(deadline, ctx.now, ctx.policy);
         summary = `Protect the promise; monitor qualifying payments until ${ptpProtectionUntil.toISOString()}`;

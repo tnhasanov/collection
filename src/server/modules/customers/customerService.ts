@@ -30,6 +30,7 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
       loans: { orderBy: { originationDate: "asc" } },
       cases: { orderBy: { openedAt: "desc" }, take: 5, include: { owner: true, team: true, caseLoans: { select: { loanId: true, releasedAt: true, releaseReason: true } } } },
       relatedParties: { orderBy: [{ role: "asc" }, { displayName: "asc" }] },
+      outboundMessages: { orderBy: { requestedAt: "desc" }, take: 8, include: { template: { select: { code: true, title: true } } } },
       promises: { orderBy: { createdAt: "desc" }, take: 10, include: { paymentLinks: true } },
       supportCases: { where: { status: { in: ["OPEN", "UNDER_REVIEW"] } } },
       paymentClaims: { where: { status: "OPEN" } },
@@ -107,6 +108,7 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
       balancesAsOf: active.reduce<Date | null>((m, l) => (!m || l.balancesAsOf < m ? l.balancesAsOf : m), null),
     },
     case: openCase ? { id: openCase.id, status: openCase.status, episodeNo: openCase.episodeNo, openedAt: openCase.openedAt, ownerName: openCase.owner?.displayName ?? null, teamName: openCase.team?.name ?? null, portfolio: openCase.portfolio, loans: openCase.caseLoans.map((cl) => ({ loanId: cl.loanId, inScope: !cl.releasedAt, releasedAt: cl.releasedAt, releaseReason: cl.releaseReason })) } : null,
+    messages: customer.outboundMessages.map((m) => ({ id: m.id, kind: m.kind, status: m.status, requestedAt: m.requestedAt, sentAt: m.sentAt, deliveredAt: m.deliveredAt, blockReason: m.blockReason, segments: m.segments, estimatedCost: m.estimatedCost?.toString() ?? null, template: m.template ? `${m.template.code}` : null, language: m.language })),
     relatedParties: customer.relatedParties.map((r) => ({ id: r.id, role: r.role, displayName: r.displayName, relation: r.relation, phoneMasked: r.phoneMasked, verification: r.verification, disclosureAllowed: r.disclosureAllowed, contactRules: r.contactRules, sourceSystem: r.sourceSystem, sourceAsOf: r.sourceAsOf })),
     caseHistory: customer.cases.map((c) => ({ id: c.id, status: c.status, episodeNo: c.episodeNo, openedAt: c.openedAt, closedAt: c.closedAt, closeReason: c.closeReason })),
     decision: decision
@@ -144,7 +146,7 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
       : null,
     restrictions: {
       openDisputes: customer.supportCases.filter((s) => s.type === "DISPUTE").map((s) => ({ id: s.id, reason: s.reason, status: s.status })),
-      supportCases: customer.supportCases.filter((s) => s.type !== "DISPUTE").map((s) => ({ id: s.id, type: s.type, reason: s.reason, status: s.status, restrictionUntil: s.restrictionUntil })),
+      supportCases: customer.supportCases.filter((s) => s.type !== "DISPUTE").map((s) => ({ id: s.id, type: s.type, reason: s.reason, status: s.status, restrictionUntil: s.restrictionUntil, confirmedAt: s.confirmedAt, reporterRelation: s.reporterRelation, reportSource: s.reportSource })),
       paidClaims: customer.paymentClaims.map((c) => ({ id: c.id, claimedAmount: c.claimedAmount?.toString() ?? null, reference: c.reference, holdUntil: c.holdUntil })),
       lastRpcAt: lastRpc?.connectedAt ?? lastRpc?.startedAt ?? null,
       cooldownUntil: lastRpc ? rpcCooldownEnd(lastRpc.connectedAt ?? lastRpc.startedAt, policy) : null,

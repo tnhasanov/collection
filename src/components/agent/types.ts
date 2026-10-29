@@ -17,7 +17,7 @@ export type OutcomeDraft = {
   paidClaim?: { amount?: string | null; date?: string | null; channel?: string | null; reference?: string | null } | null;
   wrongNumber?: { contactPointId: string } | null;
   dispute?: { reason: string } | null;
-  support?: { type: "HARDSHIP" | "COMPLAINT" | "SPECIAL_HANDLING" | "DECEASED_LEGAL"; reason: string } | null;
+  support?: { type: "HARDSHIP" | "COMPLAINT" | "SPECIAL_HANDLING" | "DECEASED_LEGAL"; reason: string; reporterRelation?: "SPOUSE" | "CHILD" | "PARENT" | "SIBLING" | "RELATIVE" | "EMPLOYER" | "LEGAL_REPRESENTATIVE" | "OTHER" | null; reportSource?: string | null } | null;
   customerStatement?: { indicativePaymentDate?: string | null; indicativeAmount?: string | null; text?: string | null } | null;
   secondaryFlags?: string[];
   returnReady?: boolean;

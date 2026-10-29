@@ -3,7 +3,7 @@ import { loadAgentPage } from "../loader";
 
 export const dynamic = "force-dynamic";
 
-export default async function AgentCallPage() {
-  const { initial, agentUser } = await loadAgentPage();
-  return <AgentDesktop initial={initial} user={agentUser} focus="call" />;
+export default async function Page() {
+  const { initial, agentUser, locale, showDiagnostics } = await loadAgentPage();
+  return <AgentDesktop initial={initial} user={agentUser} focus="call" locale={locale} showDiagnostics={showDiagnostics} />;
 }

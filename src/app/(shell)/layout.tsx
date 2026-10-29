@@ -7,6 +7,8 @@ import { navForRole } from "@/components/shell/nav";
 import { ROLE_LABELS } from "@/server/auth/permissions";
 import { businessDate, now } from "@/server/clock";
 import { formatDate, formatBakuTime } from "@/server/dates";
+import { currentLocale } from "@/i18n/locale";
+import { t } from "@/i18n/dictionaries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   if (!user) redirect("/login?reason=session");
   if (user.mustChangePassword) redirect("/account/password");
   const mode = appMode();
+  const locale = await currentLocale();
   const [bd, current, feed, unread, worker, demoUsers] = await Promise.all([
     businessDate(),
     now(),
@@ -29,11 +32,11 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   const workerOnline = !!worker && wallClock.getTime() - worker.lastSeenAt.getTime() < 60_000;
   return (
     <div className="flex min-h-screen">
-      <Sidebar groups={navForRole(user.role)} locale="en" />
+      <Sidebar groups={navForRole(user.role)} locale={locale} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar locale="en" user={{ displayName: user.displayName, roleLabel: ROLE_LABELS[user.role], username: user.username }} mode={mode} businessDate={formatDate(bd)} freshness={freshness} notifications={unread} demoUsers={demoUsers.map((u) => ({ username: u.username, label: `${u.displayName} · ${ROLE_LABELS[u.role]}` }))} workerOnline={workerOnline} />
+        <Topbar locale={locale} user={{ displayName: user.displayName, roleLabel: ROLE_LABELS[user.role], username: user.username }} mode={mode} businessDate={formatDate(bd)} freshness={freshness} notifications={unread} demoUsers={demoUsers.map((u) => ({ username: u.username, label: `${u.displayName} · ${ROLE_LABELS[u.role]}` }))} workerOnline={workerOnline} />
         <main className="flex-1 px-4 py-4 lg:px-6">{children}</main>
-        <footer className="px-4 py-3 text-[11px] text-muted lg:px-6">ATB Collections · synthetic demo data · Asia/Baku · AZN · brand source atb.az/media</footer>
+        <footer className="px-4 py-3 text-[11px] text-muted lg:px-6">ATB Collections · {t(locale, "app.synthetic")} · Asia/Baku · AZN</footer>
       </div>
     </div>
   );

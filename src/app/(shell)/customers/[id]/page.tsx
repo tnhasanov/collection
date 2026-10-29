@@ -13,6 +13,8 @@ import { formatBakuDateTime, formatDate } from "@/server/dates";
 import { CustomerActions } from "@/components/customers/CustomerActions";
 import { CustomerTabs } from "@/components/customers/CustomerTabs";
 import { appendAudit } from "@/server/modules/audit/audit";
+import { currentLocale } from "@/i18n/locale";
+import { SpecialCaseActions } from "@/components/customers/SpecialCaseActions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     redirect("/access-denied");
   }
   const t = await now();
+  const locale = await currentLocale();
   let data;
   try {
     data = await getCustomer360(prisma, id, { now: t, maskContacts: !hasPermission(user.role, "integration.operate") });
@@ -69,9 +72,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </Badge>
         ))}
         {data.restrictions.supportCases.map((x) => (
-          <Badge key={x.id} tone="warning">
-            {x.type.replace(/_/g, " ").toLowerCase()} case
+          <Badge key={x.id} tone={x.type === "DECEASED_LEGAL" ? "danger" : "warning"}>
+            {x.type === "DECEASED_LEGAL" ? `Vəfat barədə məlumat · ${x.confirmedAt ? "confirmed" : "reported, unconfirmed"}` : `${x.type.replace(/_/g, " ").toLowerCase()} case`}
           </Badge>
+        ))}
+        {hasPermission(user.role, "special-case.confirm") && data.restrictions.supportCases.filter((x) => (x.type === "DECEASED_LEGAL" || x.type === "SPECIAL_HANDLING") && !x.confirmedAt && x.status === "OPEN").map((x) => (
+          <span key={`act-${x.id}`} className="flex gap-1"><SpecialCaseActions supportCaseId={x.id} type={x.type} /></span>
         ))}
         {data.restrictions.paidClaims.map((x) => (
           <Badge key={x.id} tone="info">
@@ -103,7 +109,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   <Link href={`/loans/${l.id}`} className="font-medium">
                     {l.coreLoanId}
                   </Link>
-                  <Badge tone={l.dpd > 0 ? "danger" : l.status === "ACTIVE" ? "success" : "neutral"}>{l.dpd > 0 ? `DPD ${l.dpd}` : l.status === "ACTIVE" ? "Current" : l.status.replace(/_/g, " ")}</Badge>
+                  <span className="flex gap-1">
+                    {data.case?.loans.find((x) => x.loanId === l.id) && <Badge tone={data.case.loans.find((x) => x.loanId === l.id)!.inScope ? "info" : "neutral"}>{data.case.loans.find((x) => x.loanId === l.id)!.inScope ? "in case scope" : "released"}</Badge>}
+                    <Badge tone={l.dpd > 0 ? "danger" : l.status === "ACTIVE" ? "success" : "neutral"}>{l.dpd > 0 ? `DPD ${l.dpd}` : l.status === "ACTIVE" ? "Current" : l.status.replace(/_/g, " ")}</Badge>
+                  </span>
                 </div>
                 <p className="text-xs text-muted">
                   {formatAzn(l.principalOriginal)} · {formatPercent(l.nominalAnnualRate, 2)} nominal · {l.tenorMonths} m · installment {formatAzn(l.regularInstallment)}
@@ -127,7 +136,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </ul>
         </Card>
         <Card>
-          <CustomerTabs data={JSON.parse(JSON.stringify(data))} initialTab={sp.tab ?? "overview"} />
+          <CustomerTabs data={JSON.parse(JSON.stringify(data))} initialTab={sp.tab ?? "overview"} locale={locale} />
         </Card>
         <div className="space-y-3">
           <Card title="Why this customer?" subtitle="Model class and action bucket are separate">

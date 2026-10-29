@@ -18,10 +18,8 @@ const AGENT_NAV: NavGroup[] = [
     items: [
       { href: "/agent", labelKey: "nav.agent", screen: "S28A" },
       { href: "/agent/call", labelKey: "nav.agentCall", screen: "S28B" },
-      { href: "/agent/callbacks", labelKey: "nav.agentCallbacks", screen: "S08" },
-      { href: "/agent/promises", labelKey: "nav.agentPromises", screen: "S07" },
+      { href: "/agent/follow-ups", labelKey: "nav.agentFollowUps", screen: "S07/S08" },
       { href: "/agent/results", labelKey: "nav.agentResults", screen: "S18" },
-      { href: "/agent/tasks", labelKey: "nav.agentTasks", screen: "S22" },
     ],
   },
 ];
@@ -30,6 +28,7 @@ const MANAGEMENT_NAV: NavGroup[] = [
   {
     labelKey: "nav.work",
     items: [
+      { href: "/home", labelKey: "nav.home", screen: "S01", permission: "operations.read" },
       { href: "/overview", labelKey: "nav.overview", screen: "S02", permission: "analytics.read" },
       { href: "/work-queue", labelKey: "nav.workQueue", screen: "S03", permission: "queue.read" },
       { href: "/customers", labelKey: "nav.customers", screen: "S04", permission: "customer.read" },
@@ -44,7 +43,6 @@ const MANAGEMENT_NAV: NavGroup[] = [
       { href: "/analytics", labelKey: "nav.analytics", screen: "S18", permission: "analytics.read" },
       { href: "/arrangements", labelKey: "nav.arrangements", screen: "S10", permission: "arrangement.review" },
       { href: "/recovery", labelKey: "nav.recovery", screen: "S26", permission: "recovery.manage" },
-      { href: "/self-service", labelKey: "nav.selfService", screen: "S27", permission: "analytics.read" },
     ],
   },
   {

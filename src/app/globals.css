@@ -1,8 +1,32 @@
 @import "tailwindcss";
 
 /* ATB Collections theme. Brand anchors #6F0BBB / #F4C900 / #34035D / #F8F0FE come from the public ATB
-   website stylesheet (verified 28 Oct 2026). Neutral and status tokens are application design choices. */
+   website stylesheet (verified 28 Oct 2026). Neutral and status tokens are application design choices.
+   Type scale: body 14 · tables 13 · secondary 12 · h1 22 · h2 16 · KPI 24 · script 16. Weights 400/500/600.
+   Spacing 4/8/12/16/24, radius 8px, controls 38-40px, tabular numerals everywhere. Font: self-hosted Inter
+   Variable (@fontsource-variable/inter; latin + latin-ext subsets verified for Ə ə Ğ ğ İ ı Ö ö Ş ş Ç ç Ü ü ₼). */
 @theme {
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 600;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --text-xs: 12px;
+  --text-xs--line-height: 1.4;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.45;
+  --text-base: 14px;
+  --text-base--line-height: 1.5;
+  --text-lg: 16px;
+  --text-lg--line-height: 1.4;
+  --text-xl: 18px;
+  --text-xl--line-height: 1.35;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 1.25;
+  --text-3xl: 24px;
+  --text-3xl--line-height: 1.2;
   --color-brand: #6f0bbb;
   --color-brand-dark: #34035d;
   --color-brand-light: #f8f0fe;
@@ -22,7 +46,7 @@
   --color-danger-bg: #fbebef;
   --color-info: #336eac;
   --color-info-bg: #eaf1f9;
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Inter Variable", "Inter", "Noto Sans", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -36,7 +60,8 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -101,7 +126,7 @@ body {
   }
   .btn-sm {
     @apply px-2.5 py-1 text-xs;
-    min-height: 30px;
+    min-height: 32px;
   }
 
   .card {
@@ -112,7 +137,7 @@ body {
     @apply p-4;
   }
   .card-title {
-    @apply text-base font-bold text-ink;
+    @apply text-lg font-semibold text-ink;
   }
   .card-subtitle {
     @apply text-xs text-muted;
@@ -126,7 +151,7 @@ body {
     @apply text-xs text-muted;
   }
   .kpi-value {
-    @apply text-2xl font-bold tracking-tight text-ink;
+    @apply text-3xl font-semibold tracking-tight text-ink tabular-nums;
   }
   .kpi-note {
     @apply text-xs text-muted;
@@ -193,6 +218,7 @@ body {
     @apply w-full text-sm;
     border-collapse: separate;
     border-spacing: 0;
+    font-variant-numeric: tabular-nums;
   }
   .table-dense th {
     @apply sticky top-0 z-10 bg-canvas px-3 py-2 text-left text-xs font-medium text-muted;
@@ -269,7 +295,7 @@ body {
     @apply text-[11px] font-bold tracking-wider uppercase text-brand;
   }
   .page-title {
-    @apply text-2xl font-bold tracking-tight text-ink;
+    @apply text-2xl font-semibold tracking-tight text-ink;
   }
   .page-lead {
     @apply text-sm text-muted;
@@ -376,5 +402,62 @@ body {
     background: var(--color-brand);
     color: #fff;
     font-size: 0.6875rem;
+  }
+}
+
+/* Agent workspace: compact header, script-first reading, sticky action bar, explicit state chips. */
+@layer components {
+  .compact-header {
+    @apply sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-surface px-4 py-2;
+    border-color: var(--color-line);
+    min-height: 56px;
+  }
+  .compact-header .hdr-name {
+    @apply text-lg font-semibold text-ink;
+  }
+  .compact-header .hdr-meta {
+    @apply text-xs text-muted;
+  }
+  .state-chip {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+  .state-chip-ok {
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+    background: var(--color-success-bg);
+    color: var(--color-success);
+  }
+  .state-chip-warn {
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+  }
+  .state-chip-bad {
+    border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+  }
+  .state-chip-info {
+    border-color: color-mix(in srgb, var(--color-info) 35%, transparent);
+    background: var(--color-info-bg);
+    color: var(--color-info);
+  }
+  .script-text {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--color-ink);
+  }
+  .action-bar {
+    @apply sticky bottom-0 z-20 rounded-lg border bg-surface px-4 py-3;
+    border-color: var(--color-line);
+    box-shadow: 0 -6px 16px -12px rgba(37, 22, 49, 0.35);
+  }
+  .drawer-tabs [role="tabpanel"] {
+    @apply mt-3;
+  }
+  .timeline-dot {
+    @apply mt-1.5 h-2 w-2 shrink-0 rounded-full;
   }
 }

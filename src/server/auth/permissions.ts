@@ -148,7 +148,7 @@ export function landingPathForRole(role: Role): string {
       return "/agent";
     case "TEAM_LEAD":
     case "COLLECTIONS_HEAD":
-      return "/operations";
+      return "/home";
     case "RISK_ANALYST":
     case "MODEL_MAKER":
       return "/analytics";
