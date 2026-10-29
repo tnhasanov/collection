@@ -125,6 +125,11 @@ export async function handleDialerOutbox(prisma: PrismaClient, adapter: DialerAd
         await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: { ...state, pending: pendingLeft, lastError: `No provider interaction reference for ${action}`, lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
         return { done: true, note: "No provider interaction" };
       }
+      if ((await adapter.getInteraction(interaction.providerInteractionRef)).state === "UNKNOWN") {
+        // The call may have been authorized by another process; rebuild the provider view from persisted facts first.
+        const { hydrateMockAdapter } = await import("@/server/modules/dialer/providerReconciliation");
+        await hydrateMockAdapter(prisma, adapter);
+      }
       const receipt = await adapter.requestCallControl({ idempotencyKey: message.idempotencyKey, correlationId: interaction.correlationId, providerInteractionRef: interaction.providerInteractionRef, action, agentRef: String(payload.agentRef) });
       await recordReceipt(prisma, `callControl.${action}`, message.idempotencyKey, payload, receipt, interaction.correlationId, now);
       // Confirmed / rejected / unknown are three different truths for the agent and the supervisor.

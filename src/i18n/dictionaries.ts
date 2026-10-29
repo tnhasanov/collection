@@ -195,6 +195,17 @@ const en = {
     controls: "Outbound controls",
     links: "Go to",
     nothing: "Nothing waiting for you right now.",
+    pendingWrapUp: "Pending wrap-up",
+    overdueCallbacks: "Overdue callbacks",
+    eligibleBacklog: "Eligible backlog",
+    criticalExceptions: "Critical exceptions",
+    signedIn: "signed in",
+    attempts: "attempts",
+    attributedCash: "attributed cash",
+    openCases: "Open cases",
+    overdueNow: "Overdue now",
+    receivedToday: "Received today",
+    ptpDueToday: "PTPs due today",
   },
 };
 
@@ -346,7 +357,7 @@ const az: DeepPartial<Dictionary> = {
     wrapup: { title: "Yekunlaşdırmanın sinxronizasiyası", lead: "Nəticə yadda saxlanıb. Provayder yekunlaşdırmanı hələ təsdiqləməyib.", business: "Biznes nəticəsi", savedAt: "Saxlanma vaxtı", provider: "Provayder yekunlaşdırması", pending: "Təsdiq gözlənilir", failed: "Təsdiqlənmədi; idempotent təkrar cəhd gedir, supervizor kömək edə bilər", nextVoice: "Növbəti səsli təyinat", blocked: "Təsdiqədək bloklanıb" },
     home: { attempts: "Cəhdlər / unikal müştərilər", attemptsNote: "Bugünkü fəaliyyətim, ayrı sayılır", rpc: "Təsdiqlənmiş söhbətlər", promises: "Alınmış vədlər", cash: "Təsdiqlənmiş aid edilən vəsait", cashNote: "ATTRIB-1 qaydası, əlavə təsir deyil", kept: "Yerinə yetirilən vəd nisbəti (30 gün)", talk: "Orta danışıq / ZSİ", unresolved: "Həll olunmamış yekunlaşdırmalar", quality: "Keyfiyyət nəticəsi", callbacks: "Geri zənglərim", promisesDue: "Vaxtı çatan vədlərim", readiness: "Hazırlıq və növbəti təyinat", readinessText: "Bir dəfə Hazır olun. Dialer uyğun müştərini rezerv edir və düzgün profil və ssenarini avtomatik açır.", recent: "Son söhbətlər", tasks: "Təqib tapşırıqlarım", draft: "Nəticə qaralamam", campaign: "Kampaniya", pendingSave: "yadda saxlanmayıb", nonePending: "gözləyən yoxdur" },
   },
-  home: { leadTitle: "Komanda rəhbərinin paneli", headTitle: "Yığım rəhbərinin paneli", genericTitle: "Əsas səhifə", decisions: "Qərarımı gözləyir", teamNow: "Komanda indi", today: "Bu gün", portfolio: "Portfel", approvals: "Gözləyən təsdiqlər", controls: "Çıxış nəzarəti", links: "Keçid", nothing: "Hazırda sizi gözləyən heç nə yoxdur." },
+  home: { leadTitle: "Komanda rəhbərinin paneli", headTitle: "Yığım rəhbərinin paneli", genericTitle: "Əsas səhifə", decisions: "Qərarımı gözləyir", teamNow: "Komanda indi", today: "Bu gün", portfolio: "Portfel", approvals: "Gözləyən təsdiqlər", controls: "Çıxış nəzarəti", links: "Keçid", nothing: "Hazırda sizi gözləyən heç nə yoxdur.", pendingWrapUp: "Gözləyən yekunlaşdırma", overdueCallbacks: "Gecikmiş geri zənglər", eligibleBacklog: "Uyğun iş ehtiyatı", criticalExceptions: "Kritik istisnalar", signedIn: "daxil olub", attempts: "cəhd", attributedCash: "aid edilən vəsait", openCases: "Açıq işlər", overdueNow: "Cari gecikmə", receivedToday: "Bu gün daxil olub", ptpDueToday: "Bu gün vaxtı çatan vədlər" },
 };
 
 const ru: DeepPartial<Dictionary> = {

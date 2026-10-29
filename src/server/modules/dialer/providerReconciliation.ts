@@ -91,9 +91,17 @@ export async function reconcileProviderState(prisma: PrismaClient, adapter: Dial
   const result: ReconcileResult = { openInteractions: 0, endedFromProvider: 0, unknownAtProvider: 0, sessionsCorrected: 0 };
   const open = await prisma.interaction.findMany({ where: { status: "OPEN", channel: "VOICE_OUTBOUND" }, include: { reservation: { select: { agentSessionId: true, agentSession: { select: { providerAgentRef: true, confirmedState: true, id: true } } } } } });
   result.openInteractions = open.length;
+  let hydrated = false;
   for (const i of open) {
     const ref = i.providerInteractionRef ?? `mock-call-${i.correlationId}`;
-    const provider = await adapter.getInteraction(ref);
+    let provider = await adapter.getInteraction(ref);
+    if (provider.state === "UNKNOWN" && !hydrated) {
+      // Another process (web allocation, a previous worker) may have authorized this call: rebuild the provider view
+      // from persisted facts once before trusting an UNKNOWN answer.
+      await hydrateMockAdapter(prisma, adapter);
+      hydrated = true;
+      provider = await adapter.getInteraction(ref);
+    }
     const control = readControlState(i.controlState);
     if (provider.state === "ENDED") {
       const endedAt = provider.endedAt ?? now.toISOString();
@@ -124,8 +132,11 @@ export async function reconcileProviderState(prisma: PrismaClient, adapter: Dial
       await applyConfirmedState(prisma, session.id, "TALKING", now, { reason: "State restored from provider by reconciliation" });
       result.sessionsCorrected++;
     }
-    if (control.providerState !== provider.state || control.muted !== !!provider.muted || control.held !== !!provider.held) {
-      await prisma.interaction.update({ where: { id: i.id }, data: { controlState: { ...control, providerState: provider.state, muted: provider.muted ?? control.muted, held: provider.held ?? control.held, updatedAt: now.toISOString() } as never } });
+    const wasUnknown = control.providerState === "UNKNOWN";
+    if (wasUnknown || control.providerState !== provider.state || control.muted !== !!provider.muted || control.held !== !!provider.held) {
+      // A call the provider reports again is healthy: the "no record" error and its exception are cleared.
+      await prisma.interaction.update({ where: { id: i.id }, data: { controlState: { ...control, providerState: provider.state, muted: provider.muted ?? control.muted, held: provider.held ?? control.held, ...(wasUnknown ? { lastError: null, lastErrorAt: null } : {}), updatedAt: now.toISOString() } as never } });
+      if (wasUnknown) await prisma.exceptionCase.updateMany({ where: { dedupKey: `CALL_STATE_UNKNOWN:${i.id}`, status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, data: { status: "RESOLVED", resolvedAt: now, resolution: "Provider reported the call again after reconciliation" } });
     }
   }
   return result;

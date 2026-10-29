@@ -91,16 +91,52 @@ VOICEMAIL, FAILED, INVALID_NUMBER …), `agent.state.changed`, `connectivity.los
 Real-provider pilot needs: endpoint/security mapping, test extension and campaign, event samples, pre-dial
 suppression behaviour, wrap-up timeout configuration, transfer/reconnect tests and operational owners.
 
+### Call controls, persisted provider state and reconciliation (pilot hardening)
+
+- Call controls (`requestCallControl`: MUTE/UNMUTE/HOLD/RESUME/TRANSFER/END) are outbox commands; the receipt is one
+  of three truths — **CONFIRMED** (the interaction's `controlState` flags follow the provider), **REJECTED** (durable
+  `lastError`, and for END an exception `CALL_CONTROL_FAILURE` owned by a supervisor), **UNKNOWN** (retried with
+  backoff; `CALL_STATE_UNKNOWN` after two minutes). The desktop renders only capabilities the adapter reports
+  (`capabilities.callControls`, published in the worker heartbeat) and shows pending / confirmed / error per control.
+- The mock provider's view is persisted implicitly: on start the worker rebuilds it from reservations, open
+  interactions and active sessions (`hydrateMockAdapter`), then `reconcileProviderState` runs every minute: provider
+  ENDED → truthful `call.ended`; provider UNKNOWN → error + exception; sessions corrected to the provider state.
+- Supervisor recovery: `POST /api/operations/controls {action: "FORCE_END_CALL", interactionId, reason}` moves the
+  call to after-call work with an upper-bound talk time and resolves the related exceptions (audited).
+
 ## SMS gateway (proposal)
 
 Outbound: template id/version, language, rendered body, encoding (GSM-7 / UCS-2) and segment estimate, dedup key
 `campaign:customer:day`, policy check result at dispatch. Inbound receipts: SENT / DELIVERED / FAILED / UNKNOWN per
 provider reference; opt-out keywords update contact preferences. The demo marks messages SENT in the local log.
 
+### Message kinds and reminder receipts
+
+`OutboundMessage.kind` distinguishes CAMPAIGN, PTP_REMINDER, PAYMENT_INSTRUCTIONS and MANUAL messages; every message
+records `segments` (GSM-7 160/153, UCS-2 70/67 — Azerbaijani letters force UCS-2) and `estimatedCost` from
+`economics.unitCosts`. Promise reminders are durable `ReminderJob` rows (SCHEDULED → SENT → DELIVERED / FAILED /
+SKIPPED / CANCELLED) with pre-send rechecks (promise still active and unchanged, remaining amount, permitted hours,
+verified mobile, SMS policy, active template). A real gateway adapter must return SENT at acceptance and a delivery
+receipt that the worker maps onto the same fields.
+
 ## Identity and access (proposal)
 
 OIDC/SAML federation with role claims mapped to `Role`; team membership from the directory; session lifetime and
 MFA per bank policy. Object-level customer scope stays in the application (`src/server/auth/access.ts`).
+
+### Access scope and modes
+
+One server-side customer scope (`src/server/auth/scope.ts`) is applied before pagination to every list, search,
+aggregate, export and API. Unscoped roles see everything (optionally limited to their branch scopes); agents see
+customers reserved for them, work they own or claimed, their own interactions inside `access.scopedHistoryDays`
+(14 days, draft) and their active or recent promises. Sessions are revalidated on every stream tick; a revoked
+session closes the stream and returns the browser to sign-in. Modes: DEMO (shared identities, role switch), PILOT
+(individual identities, forced password change, rate-limited sign-in, no role switch), INTEGRATION (bank IdP).
+
+### Health endpoints
+
+`GET /api/health/live` (process alive) and `GET /api/health/ready` (database, migrations applied, worker heartbeat,
+provider capabilities); see DEPLOYMENT.md.
 
 ## Resilience
 

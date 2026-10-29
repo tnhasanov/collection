@@ -32,13 +32,13 @@ export default async function HomePage() {
       {(data.controls.killSwitch || data.controls.pausedChannels.length > 0) && <Callout tone="danger" className="mb-3">{tt("home.controls")}: {data.controls.killSwitch ? "KILL SWITCH ON · " : ""}{data.controls.pausedChannels.join(", ")}</Callout>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <Kpi label={tt("home.decisions")} value={decisions} tone={decisions ? "warning" : undefined} />
-        <Kpi label={`${tt("home.teamNow")}: ${tt("agent.states.READY")} / ${tt("agent.states.TALKING")}`} value={`${data.team.ready} / ${data.team.talking}`} note={`${data.team.signedIn} signed in · ${data.team.acw} ACW · ${data.team.notReady} ${tt("agent.states.NOT_READY").toLowerCase()}`} href="/operations" />
-        <Kpi label="Pending wrap-up" value={data.team.pendingWrapUp} tone={data.team.pendingWrapUp ? "warning" : undefined} href="/operations" />
-        <Kpi label="Overdue callbacks" value={data.team.overdueCallbacks} tone={data.team.overdueCallbacks ? "warning" : undefined} href="/tasks?type=CALLBACK" />
-        <Kpi label="Eligible backlog" value={data.team.eligibleBacklog} href="/work-queue?queue=all&eligibility=ELIGIBLE" />
-        <Kpi label={`${tt("home.today")}: RPC / PTP`} value={`${data.today.rpc} / ${data.today.promises}`} note={`${data.today.attempts} attempts`} href="/analytics?tab=agents" />
-        <Kpi label={`${tt("home.today")}: attributed cash`} value={formatAzn(data.today.attributedCash, { withCurrency: false })} note={`AZN · ${data.today.attributionRule}`} href="/operations" />
-        <Kpi label="Critical exceptions" value={data.team.criticalExceptions} tone={data.team.criticalExceptions ? "danger" : undefined} href="/exceptions" />
+        <Kpi label={`${tt("home.teamNow")}: ${tt("agent.states.READY")} / ${tt("agent.states.TALKING")}`} value={`${data.team.ready} / ${data.team.talking}`} note={`${data.team.signedIn} ${tt("home.signedIn")} · ${data.team.acw} ACW · ${data.team.notReady} ${tt("agent.states.NOT_READY").toLowerCase()}`} href="/operations" />
+        <Kpi label={tt("home.pendingWrapUp")} value={data.team.pendingWrapUp} tone={data.team.pendingWrapUp ? "warning" : undefined} href="/operations" />
+        <Kpi label={tt("home.overdueCallbacks")} value={data.team.overdueCallbacks} tone={data.team.overdueCallbacks ? "warning" : undefined} href="/tasks?type=CALLBACK" />
+        <Kpi label={tt("home.eligibleBacklog")} value={data.team.eligibleBacklog} href="/work-queue?queue=all&eligibility=ELIGIBLE" />
+        <Kpi label={`${tt("home.today")}: RPC / PTP`} value={`${data.today.rpc} / ${data.today.promises}`} note={`${data.today.attempts} ${tt("home.attempts")}`} href="/analytics?tab=agents" />
+        <Kpi label={`${tt("home.today")}: ${tt("home.attributedCash")}`} value={formatAzn(data.today.attributedCash, { withCurrency: false })} note={`AZN · ${data.today.attributionRule}`} href="/operations" />
+        <Kpi label={tt("home.criticalExceptions")} value={data.team.criticalExceptions} tone={data.team.criticalExceptions ? "danger" : undefined} href="/exceptions" />
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-[3fr_2fr]">
         <Card title={tt("home.decisions")} subtitle="Promise-date exceptions, deceased verifications, calls the provider did not end, failed wrap-ups">
@@ -84,10 +84,10 @@ export default async function HomePage() {
           {head && (
             <Card title={tt("home.portfolio")} subtitle="Live operational totals; cohort performance lives in Analytics">
               <div className="grid grid-cols-2 gap-3">
-                <Kpi label="Open cases" value={data.portfolio.overdueCustomers} href="/work-queue?queue=all" />
-                <Kpi label="Overdue now" value={formatAzn(data.portfolio.overdueAmount, { withCurrency: false })} note="AZN" href="/overview" />
-                <Kpi label="Received today" value={formatAzn(data.portfolio.receivedToday, { withCurrency: false })} note="AZN · posted" href="/payments" />
-                <Kpi label="PTPs due today" value={data.portfolio.ptpDueToday} href="/promises?view=due-today" />
+                <Kpi label={tt("home.openCases")} value={data.portfolio.overdueCustomers} href="/work-queue?queue=all" />
+                <Kpi label={tt("home.overdueNow")} value={formatAzn(data.portfolio.overdueAmount, { withCurrency: false })} note="AZN" href="/overview" />
+                <Kpi label={tt("home.receivedToday")} value={formatAzn(data.portfolio.receivedToday, { withCurrency: false })} note="AZN · posted" href="/payments" />
+                <Kpi label={tt("home.ptpDueToday")} value={data.portfolio.ptpDueToday} href="/promises?view=due-today" />
               </div>
             </Card>
           )}

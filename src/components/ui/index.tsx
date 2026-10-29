@@ -183,7 +183,7 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
 export function Toast({ message, tone = "info" }: { message: string | null; tone?: "info" | "success" | "danger" | "warning" }) {
   if (!message) return null;
   return (
-    <div className={cx("fixed bottom-4 right-4 z-50 max-w-sm shadow-lg", "callout", `callout-${tone}`)} role="status" aria-live="polite">
+    <div className={cx("fixed top-16 right-4 z-50 max-w-sm shadow-lg", "callout", `callout-${tone}`)} role="status" aria-live="polite">
       {message}
     </div>
   );

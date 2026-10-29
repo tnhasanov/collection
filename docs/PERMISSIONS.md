@@ -39,12 +39,16 @@ Generated from `src/server/auth/permissions.ts` by `npx tsx scripts/write-permis
 | `users.manage` |  |  |  |  |  |  |  |  |  | ✓ |  |
 | `export.scoped` |  |  | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |
 | `recovery.manage` |  |  | ✓ | ✓ |  |  |  |  |  |  |  |
-| `arrangement.write` |  |  |  |  |  |  |  |  |  |  |  |
+| `arrangement.write` |  |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | `arrangement.review` |  |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | `campaign.manage` |  |  |  | ✓ |  |  |  |  |  |  |  |
 | `template.manage` |  |  |  | ✓ |  |  |  |  |  |  |  |
 | `support.restricted.read` | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | `demo.switch-role` |  |  |  |  |  |  |  |  |  | ✓ |  |
+| `reminder.resend` |  |  | ✓ | ✓ |  |  |  |  |  |  |  |
+| `diagnostics.read` |  |  |  |  |  |  |  | ✓ | ✓ | ✓ |  |
+| `special-case.confirm` |  |  | ✓ | ✓ |  |  |  |  |  |  |  |
+| `ptp-exception.decide` |  |  | ✓ | ✓ |  |  | ✓ |  |  |  |  |
 
 ## Notes
 

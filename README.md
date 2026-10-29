@@ -46,6 +46,19 @@ npm run worker                  # in a second terminal: durable background worke
 Reset the demo at any time: `npm run db:reset` (drops schemas, re-applies migrations, seeds). The seeded business
 date is **27 Oct 2026**; `DEMO_CLOCK_MODE=offset` lets time advance from the moment of seeding.
 
+### Pilot mode, health checks and the agent workspace (pilot hardening)
+
+- `APP_MODE=PILOT` replaces the shared demo logins with individual tester identities (`npm run pilot:users`, forced
+  password change, rate-limited sign-in, no role switching) while keeping synthetic data and mock providers; see
+  `DEPLOYMENT.md` and `UAT_GUIDE.md`.
+- Health: `/api/health/live` and `/api/health/ready` (database, migrations, worker heartbeat).
+- Agent workspace: compact provider-confirmed header, script and structured answers as the main area, details tabs
+  (facts, accounts, timeline, related persons, payment instructions), sticky action bar; follow-ups in one view
+  (`/agent/follow-ups`); role home pages for leads and heads (`/home`). Azerbaijani is the default UI language
+  (switch in the topbar).
+- Policy drafts pending bank approval are listed in `ASSUMPTIONS.md` §5a (access window, attribution rule ATTRIB-1,
+  promise horizon and calendar rule, reminder schedule).
+
 Demo identities (password `demo1234`, DEMO mode only): `agent.a`, `agent.b` (senior), `agent.c`–`agent.f`,
 `lead`, `head`, `risk`, `modelmaker`, `approver`, `integrator`, `auditor`, `admin`, service account `svc.core-feed`.
 Agents land on `/agent`; everyone else on `/overview`. The admin can switch role in DEMO mode (audited).

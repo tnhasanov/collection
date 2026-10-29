@@ -1,6 +1,46 @@
 # Build status — ATB Collections (synthetic demo)
 
-Last updated: 28 Oct 2026 (after the guided-agent acceptance pass) · branch `claude/bold-bohr-njc446`
+Last updated: 29 Oct 2026 (pilot-hardening pass) · branch `claude/pilot-hardening` (review branch; the shared live
+deployment on `claude/bold-bohr-njc446` is unchanged)
+
+## Pilot-hardening pass (29 Oct 2026)
+
+Audit findings reproduced against the code and fixed, the collection process hardened, the agent workspace rebuilt
+and the UI moved to Azerbaijani-first design tokens. Policy drafts introduced by this pass are listed in
+`ASSUMPTIONS.md` §5a; the tester guide is `UAT_GUIDE.md`; hosting notes for a multi-day pilot are in `DEPLOYMENT.md`.
+
+| Area | What changed | Where |
+|---|---|---|
+| Access scope | One server-side scope (`scope.ts`) before pagination for customers, payments, promises, tasks, work queue, search, analytics/export, APIs; agents keep bounded history (14 days); SSE stream closes on session revocation | `src/server/auth/*`, list pages, `api/agent/stream` |
+| Call recovery | Provider-confirmed Mute/Hold/End with `controlState` (pending / confirmed / rejected / unknown), reconciliation job, hydration of the provider view from persisted facts (also before trusting UNKNOWN), supervisor force-end, exceptions `CALL_CONTROL_FAILURE` / `CALL_STATE_UNKNOWN` | `dialer/runtime.ts`, `dialer/providerReconciliation.ts`, `api/operations/controls` |
+| Clock | Adapter uses the injected domain clock; daily aging per Baku business date (`Loan.agedForDate`); idempotent worker catch-up on start; UI timers anchored on the server clock | `clock.ts`, `jobs/aging.ts`, `jobs/catchUp.ts`, `worker/main.ts` |
+| Attribution | Rule ATTRIB-1 stored once per payment (`PaymentAttribution`), reversed with reversals, read by the agent dashboard, team grid and analytics | `payments/attribution.ts` |
+| Reminders | Durable `ReminderJob` with pre-send rechecks, dedup, cancellation, delivery status, manual resend, Unicode segments and cost | `promises/reminderService.ts` |
+| Promise policy | 30-day horizon (draft), next-business-day grace, explicit confirmation; out-of-policy date → `PTP_EXCEPTION` approval (lead/head), approval creates the promise | `promises/promiseService.ts`, `approvals/approvalService.ts` |
+| Outcomes | `DELINQUENCY_CLOSED` ("Gecikmə bağlanıb") when a verified posting clears the overdue during the call (agent notified live); `PTP_EXCEPTION_PROPOSED`; death report with reporter relation → reported, verification exception, lead confirm/reject | `interactions/*`, `api/support-cases/[id]/confirm` |
+| Cases | Loan-level scope inside a multi-loan case (`CaseLoan.releasedAt`) | `cases/caseService.ts` |
+| Payment instructions | Approved AZ/EN/RU template sent from the current call after right-party verification, with segments and cost | `api/customers/[id]/sms` |
+| Pilot access | `APP_MODE=PILOT`: individual tester identities (`npm run pilot:users`), forced password change, rate-limited sign-in, role switch only in DEMO | `auth/*`, `scripts/create-pilot-users.ts` |
+| Agent workspace | Compact header (state, timer, customer line, positive eligibility labels, capability-driven controls), script at 16px + structured answers, details tabs (facts, accounts with explicit payment states, timeline, related persons, payment instructions), sticky action bar, diagnostics restricted, follow-up view, role home for leads/heads, deferred page removed | `components/agent/*`, `(shell)/agent/follow-ups`, `(shell)/home` |
+| Design | Self-hosted Inter Variable (Ə ə Ğ ğ İ ı Ö ö Ş ş Ç ç Ü ü ₼ verified in the latin + latin-ext subsets), type scale 14/13/12/22/16/24, weights 400/500/600, 8px radii, tabular numerals, 38-40px controls; Azerbaijani default with EN/RU switch | `globals.css`, `src/i18n/*` |
+| Operations | `/api/health/live`, `/api/health/ready`; worker heartbeat with capabilities and last catch-up; idempotent pilot reference seed at boot | `api/health/*`, `scripts/start-all.sh` |
+
+| Check (this pass) | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | clean |
+| `npm run build` | production build succeeds |
+| `npm test` | 7 files, 60 unit tests (new `pilotHardening.test.ts`: rate limiting, horizon/exception, overdue-cleared and death-report rules, scope helpers, SMS segments, mock provider controls and persisted state, dictionaries) |
+| `npm run test:integration` | 4 files, 40 tests (new `pilot.test.ts`: cross-agent scope on detail/search/lists/headers and the history window, attribution once-per-payment with competing agents / replay / reversal / team grid, reminder scheduling-dispatch-delivery-skip-cancel, provider-confirmed controls with rejected End and force-end recovery, idempotent catch-up and Baku aging, overdue cleared during a call with live notification, promise-date exception with lead approval and refused self-approval, third-party death report, loan-level case scope, readiness endpoint) |
+| `npm run e2e:pilot` | agent shift, team lead, head and admin journeys at 1366×768 and 1440×900; screenshots in `docs/screenshots/after/` (previous build in `docs/screenshots/before/`) |
+
+Defect found and fixed during the browser pass: a second worker process (or a web-side authorization) made a live
+call unknown to the worker's mock provider instance, so reconciliation flagged it and End would have been refused;
+the worker now rebuilds the provider view from persisted facts before trusting an UNKNOWN answer and clears the
+error once the provider reports the call again.
+
+Not done in this pass (carried in "Known gaps"): management screens beyond navigation and shared labels remain
+English; the contact-outcome drawer on S04 does not yet offer the two new outcomes (agents record them from the
+call workspace); the sign-in rate limiter is per instance.
 
 ## Guided-agent blueprint and acceptance pass (28 Oct 2026)
 

@@ -65,6 +65,23 @@ exist yet. Nothing here asserts an Azerbaijani legal requirement.
 - Identity: local demo accounts with scrypt-hashed passwords and DB sessions; production requires the bank's IdP (OIDC/SAML) and MFA.
 - Restricted hardship details are stored as opaque "restricted" markers in the demo; a production build needs the approved repository and field-level encryption.
 
+## 5a. Pilot-hardening policy assumptions (draft values, bank approval pending)
+
+| Topic | Value used | Provenance | Where |
+|---|---|---|---|
+| Agent historical access window | 14 days after the agent's last own interaction or promise activity; open calls, owned work and active promises always in scope | Demo assumption (`access.scopedHistoryDays`) | `/settings`, `src/server/auth/scope.ts` |
+| Agent cash attribution | Rule **ATTRIB-1**: a verified POSTED payment is credited once to the agent of the latest verified conversation within 10 days before the payment event; competing agents never share; reversals remove the credit; reporting date = Baku business date of the event | Demo assumption (`attribution.windowDays`) | `/settings`, `payments/attribution.ts`, METRIC_DICTIONARY `AGENT_ATTRIBUTED_CASH` |
+| Promise horizon | Maximum 30 days from today; a later date is a **proposed exception** approved by a team lead / head (`PTP_EXCEPTION`), never a promise | Demo assumption (`promise.policy.maxHorizonDays`) | `/settings`, `/approvals` |
+| Promise calendar rule | `NEXT_BUSINESS_DAY_GRACE`: a deadline on a non-permitted day keeps its date; the settlement allowance (2 days) counts from the next business day | Demo assumption (`promise.policy.deadlineCalendarRule`) | `promises/promiseService.ts` |
+| Reminder schedule | SMS one day before the deadline and on the deadline day at 10:00 Baku (moved into permitted hours); rechecked before sending | Demo assumption (`reminders.sendTimeBaku`) | `promises/reminderService.ts` |
+| Payment instructions | Approved template `PAY-INSTRUCTIONS-01` (AZ/EN/RU) sent only from the current call after right-party verification; branch, mobile app and terminal channels named without account numbers | Demo assumption | `/api/customers/:id/sms` |
+| Deceased notification | Recorded as **reported** (reporter relation, source); routine contact stops, reminders pause, a lead/head confirms or rejects (`special-case.confirm`); confirmation cancels promises and withdraws work | Demo assumption | `support-cases/:id/confirm` |
+| Overdue cleared during a call | Outcome `DELINQUENCY_CLOSED` ("Gecikmə bağlanıb") allowed only when the fresh snapshot shows zero overdue; no retry, no promise | Demo assumption | `interactions/outcomeService.ts` |
+| Loan-level case scope | A loan whose arrears clear is released from the case (`CaseLoan.releasedAt`) while other loans keep the episode open; it re-enters if arrears return | Demo assumption | `cases/caseService.ts` |
+| Sign-in protection (PILOT) | 8 failed attempts per username / 30 per IP in 15 minutes; forced password change at first sign-in; no shared identities | Demo assumption | `auth/rateLimit.ts` |
+| Diagnostics | Correlation ids, provider refs and versions shown only to roles with `diagnostics.read` or `agent.supervise` | Design choice | agent workspace |
+| UI language | Azerbaijani default, English/Russian switch per viewer (cookie); management screens remain English beyond navigation and shared labels | Design choice | `src/i18n` |
+
 ## 6. Unresolved production inputs (blocking a production go-live, not the demo)
 
 1. Signed executable Prometeia rule artifact with golden cases and the resolved Class 7 / DPD 10 / target-wording conflicts.

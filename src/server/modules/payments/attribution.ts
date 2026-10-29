@@ -88,12 +88,18 @@ export async function attributedCashByAgent(db: Db, range: { from: Date; to: Dat
 }
 
 /** Idempotent backfill for payments posted before attribution existed (worker catch-up). */
-export async function backfillAttributions(db: Db, now: Date, limit = 2000) {
-  const missing = await db.payment.findMany({ where: { status: "POSTED", customerId: { not: null }, attribution: null }, orderBy: { eventAt: "asc" }, take: limit, select: { id: true, customerId: true, loanId: true, amount: true, eventAt: true, status: true } });
+export async function backfillAttributions(db: Db, now: Date, batch = 500, maxBatches = 200) {
+  let processed = 0;
   let attributed = 0;
-  for (const p of missing) {
-    const r = await attributePaymentToAgent(db, { ...p, amount: p.amount.toString() }, now);
-    if (r?.agentUserId) attributed++;
+  for (let i = 0; i < maxBatches; i++) {
+    const missing = await db.payment.findMany({ where: { status: "POSTED", customerId: { not: null }, attribution: null }, orderBy: { eventAt: "asc" }, take: batch, select: { id: true, customerId: true, loanId: true, amount: true, eventAt: true, status: true } });
+    if (missing.length === 0) break;
+    for (const p of missing) {
+      const r = await attributePaymentToAgent(db, { ...p, amount: p.amount.toString() }, now);
+      processed++;
+      if (r?.agentUserId) attributed++;
+    }
+    if (missing.length < batch) break;
   }
-  return { processed: missing.length, attributed };
+  return { processed, attributed };
 }

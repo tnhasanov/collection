@@ -40,14 +40,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const customer = await prisma.customer.findUniqueOrThrow({ where: { id } });
     const template = (await prisma.template.findFirst({ where: { code: templateCode, status: "ACTIVE", language: customer.language, kind: { in: ["SMS", "PTP_REMINDER"] } } })) ?? (await prisma.template.findFirst({ where: { code: templateCode, status: "ACTIVE", language: "AZ", kind: { in: ["SMS", "PTP_REMINDER"] } } }));
     if (!template) throw notFound("No approved active template for this language");
-    const { decision, contactPointId } = await evaluateCustomerEligibility(prisma, id, { channel: "SMS", now: t });
+    const { decision, contactPointId: evaluatedContact } = await evaluateCustomerEligibility(prisma, id, { channel: "SMS", now: t });
+    // During the agent's own call the customer is reserved by that very agent: the reservation-uniqueness check is not a
+    // reason to withhold payment instructions. Every other policy check (consent, hours, limits, holds) still applies.
+    const blocking = decision.reasonCodes.filter((c) => !(kind === "PAYMENT_INSTRUCTIONS" && c === "NOT_RESERVED_ELSEWHERE"));
+    const fallbackContact = kind === "PAYMENT_INSTRUCTIONS" && !evaluatedContact ? (await prisma.contactPoint.findFirst({ where: { customerId: id, type: "MOBILE", verification: "VERIFIED", restricted: false }, orderBy: { isPrimary: "desc" } }))?.id ?? null : null;
+    const contactPointId = evaluatedContact ?? fallbackContact;
+    const eligible = blocking.length === 0 && !!contactPointId;
     const key = `${templateCode}:${id}:${bakuBusinessDate(t)}:manual:${user.id}${interactionId ? `:${interactionId}` : ""}`;
     const body = renderTemplate(templateText(template.body), await variablesForCustomer(prisma, id, user.displayName));
     const cost = await smsCost(prisma, body);
-    if (!decision.eligible || !contactPointId) {
-      await prisma.outboundMessage.upsert({ where: { dedupKey: key }, create: { dedupKey: key, customerId: id, contactPointId, templateId: template.id, language: template.language, body, status: "BLOCKED", blockReason: decision.reasonCodes.join(","), kind, segments: cost.segments, estimatedCost: cost.estimatedCost }, update: {} });
-      await appendAudit(prisma, { actorUserId: user.id, action: "sms.blocked", objectType: "Customer", objectId: id, customerId: id, blocked: true, reason: decision.reasonCodes.join(","), changes: { templateCode, interactionId: interactionId ?? null } });
-      throw conflict("SMS blocked by contact policy", { reasonCodes: decision.reasonCodes, reasons: decision.reasonCodes.map((c) => REASON_LABELS[c] ?? c) });
+    if (!eligible) {
+      await prisma.outboundMessage.upsert({ where: { dedupKey: key }, create: { dedupKey: key, customerId: id, contactPointId, templateId: template.id, language: template.language, body, status: "BLOCKED", blockReason: blocking.join(",") || "NO_VERIFIED_MOBILE", kind, segments: cost.segments, estimatedCost: cost.estimatedCost }, update: {} });
+      await appendAudit(prisma, { actorUserId: user.id, action: "sms.blocked", objectType: "Customer", objectId: id, customerId: id, blocked: true, reason: blocking.join(",") || "NO_VERIFIED_MOBILE", changes: { templateCode, interactionId: interactionId ?? null } });
+      throw conflict("SMS blocked by contact policy", { reasonCodes: blocking, reasons: blocking.length ? blocking.map((c) => REASON_LABELS[c] ?? c) : ["No verified mobile number"] });
     }
     const existing = await prisma.outboundMessage.findUnique({ where: { dedupKey: key } });
     if (existing) return ok({ messageId: existing.id, status: existing.status, duplicate: true, segments: existing.segments, estimatedCost: existing.estimatedCost?.toString() ?? null });

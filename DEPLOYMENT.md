@@ -50,3 +50,49 @@ unless upgraded. For an always-on demo set `plan: starter` on the service and `p
 - The demo identities and the payment simulator exist only while `APP_MODE=DEMO`; `INTEGRATION` mode disables them
   and requires the real adapters, which do not exist yet.
 - Do not put real customer data into the hosted demo: the demo logins are shared and the connectors are mocks.
+
+## Running a controlled pilot (PILOT mode)
+
+PILOT keeps synthetic data and mock integrations but replaces the shared demo logins with **individual tester
+identities**: no shared password, no role switching, a personal password set at first sign-in, sign-in attempts rate
+limited per IP and per username, every action attributed to the tester. Nothing real is connected.
+
+1. Set `APP_MODE=PILOT` on the service (and keep `DEMO_CLOCK_MODE=offset`, the `CONNECTOR_*` mocks, a strong
+   `SESSION_SECRET`). Redeploy.
+2. Create the testers: `npm run pilot:users -- --example pilot-users.json`, edit the file (usernames, roles, teams,
+   extensions for agents), then `npm run pilot:users -- pilot-users.json`. The script prints each temporary password
+   **once**; hand them over privately. Testers must set a personal password at first sign-in.
+3. Disable the shared demo identities: `npm run pilot:users -- --disable-demo-identities` (their history stays; the
+   sign-in page warns while any shared identity is still active).
+4. The payment simulator (`/payments`) stays available to `payment.simulate` roles so testers can post synthetic
+   payments against any active loan; the "L-DEMO-001" and every other loan are searchable there.
+5. Reference data that an existing database needs for the pilot features (payment-instruction SMS templates,
+   related persons) is applied idempotently at every boot by `scripts/start-all.sh` (`npm run db:seed:pilot`).
+
+The sign-in rate limiter is in-memory per web instance; with more than one web instance move it to a shared store
+(PostgreSQL or Redis) before widening the pilot.
+
+## Health checks, background jobs and backups
+
+- **Health**: `GET /api/health/live` always answers 200 while the process runs (restart signal for the host);
+  `GET /api/health/ready` answers 200 only when PostgreSQL is reachable and every migration is applied (503
+  otherwise) and reports the worker heartbeat (`checks.worker.online`, last catch-up, provider capabilities). Point
+  the host's health check at `/api/health/ready`. Both routes are public.
+- **Worker**: one process (`src/worker/main.ts`) owns the dialer adapter and runs the durable jobs on pg-boss:
+  outbox dispatch (1 s), allocation (2 s), maintenance (15 s), promise maturation / reminders / provider
+  reconciliation (every minute), mock source refresh and daily aging (every 2 min), SMS campaigns (5 min), daily
+  decision run (05:00 Asia/Baku). On start it hydrates the provider view from persisted facts and runs an idempotent
+  catch-up (aging for the current business date, attribution backfill, promise maturation, due work, reconciliation,
+  reminders, and the day's decision run if missing after 05:00). It can be restarted at any time: nothing is lost,
+  nothing runs twice. The worker heartbeat (`WorkerHeartbeat`) is what the topbar, operations screen and readiness
+  check read.
+- **Multi-day pilot on Render**: the free web plan sleeps and pauses the worker; use an always-on plan (`starter`) for
+  a pilot that spans days, otherwise reminders and aging run only while a request keeps the service awake (the
+  catch-up then does the missed work at wake-up).
+- **Migrations**: `prisma migrate deploy` runs at every boot before the processes start; migrations are additive
+  (new tables/columns/enum values) and safe to apply on a database with pilot history.
+- **Backups**: enable the database provider's automated backups (Render: Postgres backups on paid plans; Railway:
+  volume snapshots) and take a manual dump before each deploy during the pilot:
+  `pg_dump "$DATABASE_URL" --format=custom --file=atb-pilot-$(date +%F).dump`. Restore with `pg_restore --clean
+  --if-exists --dbname "$DATABASE_URL" <file>`. Synthetic data only; never load a production dump into the pilot.
+- **Secrets**: `.env.example` carries no secrets; set `SESSION_SECRET` and `DATABASE_URL` in the host's environment.
