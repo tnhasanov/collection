@@ -6,6 +6,7 @@ import { dec, money, toDbMoney } from "@/server/money";
 import { recomputeLoanState } from "@/server/modules/finance/loanState";
 import { syncCustomerCase } from "@/server/modules/cases/caseService";
 import { attributePaymentToPromise, reversePromiseAttribution } from "@/server/modules/promises/promiseService";
+import { attributePaymentToAgent, reverseAgentAttribution } from "@/server/modules/payments/attribution";
 import { invalidateObsoleteWork, refreshWorkItemEligibility, syncRoutineWorkItem } from "@/server/modules/work/workItemService";
 import { appendAudit } from "@/server/modules/audit/audit";
 import { enqueueOutbox } from "@/server/modules/outbox/outbox";
@@ -89,6 +90,8 @@ export async function ingestIntegrationEvent(prisma: PrismaClient, raw: unknown,
           const loanState = await recomputeLoanState(tx, loan.id, businessDate, { reason: `payment.posted ${txnId}`, sourceEventId: input.sourceEventId, asOf: now });
           const caseState = await syncCustomerCase(tx, loan.customerId, now, { actorService: "ingestion", sourceEventId: input.sourceEventId });
           const promise = await attributePaymentToPromise(tx, { id: payment.id, customerId: loan.customerId, loanId: loan.id, amount: amount.toFixed(2), eventAt: new Date(input.occurredAt), status: "POSTED" }, now);
+          // Agent attribution is decided once here under the versioned rule; every report reads this row.
+          const attribution = await attributePaymentToAgent(tx, { id: payment.id, customerId: loan.customerId, loanId: loan.id, amount: amount.toFixed(2), eventAt: new Date(input.occurredAt), status: "POSTED" }, now);
           let work: { cancelled: string[]; withdrawals: string[] } = { cancelled: [], withdrawals: [] };
           const stillInArrears = caseState.status === "OPEN" || caseState.status === "HANDOVER";
           if (!stillInArrears) {
@@ -100,8 +103,8 @@ export async function ingestIntegrationEvent(prisma: PrismaClient, raw: unknown,
             if (connected) await enqueueOutbox(tx, "agent.notify", { agentUserId: connected.agentUserId, reservationId: connected.id, kind: "PAYMENT_DURING_CALL", message: `Verified payment ${amount.toFixed(2)} AZN posted on ${loan.coreLoanId}; balances refreshed (overdue now ${loanState.totalOverdue}).` }, `notify:${connected.id}:${input.sourceEventId}`, input.correlationId ?? null);
           }
           await tx.sourceWatermark.updateMany({ where: { sourceSystem: "PAYMENT_FEED" }, data: { lastSuccessfulRunAt: now, sourceAsOf: now, lagSeconds: 0, health: "HEALTHY" } });
-          await appendAudit(tx, { actorService: "ingestion", action: "payment.posted", objectType: "Payment", objectId: payment.id, customerId: loan.customerId, caseId: caseState.caseId, sourceEventId: input.sourceEventId, correlationId: input.correlationId ?? null, changes: { amount: amount.toFixed(2), loan: loanState, case: caseState, promise, work } });
-          return { paymentId: payment.id, loanId: loan.id, customerId: loan.customerId, loan: loanState, case: caseState, promise, work };
+          await appendAudit(tx, { actorService: "ingestion", action: "payment.posted", objectType: "Payment", objectId: payment.id, customerId: loan.customerId, caseId: caseState.caseId, sourceEventId: input.sourceEventId, correlationId: input.correlationId ?? null, changes: { amount: amount.toFixed(2), loan: loanState, case: caseState, promise, attribution, work } });
+          return { paymentId: payment.id, loanId: loan.id, customerId: loan.customerId, loan: loanState, case: caseState, promise, attribution, work };
         });
         return finish("PROCESSED", effects);
       }
@@ -123,9 +126,10 @@ export async function ingestIntegrationEvent(prisma: PrismaClient, raw: unknown,
             resync = await resyncRoutineWork(tx, original.customerId, now);
           }
           const promise = await reversePromiseAttribution(tx, original.id, now);
+          const attribution = await reverseAgentAttribution(tx, original.id, reversal.id, now);
           await tx.exceptionCase.upsert({ where: { dedupKey: `REVERSED_PAYMENT:${original.id}` }, create: { dedupKey: `REVERSED_PAYMENT:${original.id}`, type: "REVERSED_PAYMENT", severity: "WARNING", customerId: original.customerId, loanId: original.loanId, paymentId: original.id, title: `Payment ${original.sourceTransactionId} (${dec(original.amount).toFixed(2)} AZN) reversed; arrears reassessed`, evidence: { reversalTransactionId: txnId } as never }, update: { lastSeenAt: now } });
-          await appendAudit(tx, { actorService: "ingestion", action: "payment.reversed", objectType: "Payment", objectId: reversal.id, customerId: original.customerId, sourceEventId: input.sourceEventId, changes: { originalPaymentId: original.id, loan: loanState, case: caseState, promise, resync } });
-          return { paymentId: reversal.id, loanId: original.loanId, customerId: original.customerId, loan: loanState, case: caseState, promise };
+          await appendAudit(tx, { actorService: "ingestion", action: "payment.reversed", objectType: "Payment", objectId: reversal.id, customerId: original.customerId, sourceEventId: input.sourceEventId, changes: { originalPaymentId: original.id, loan: loanState, case: caseState, promise, attribution, resync } });
+          return { paymentId: reversal.id, loanId: original.loanId, customerId: original.customerId, loan: loanState, case: caseState, promise, attribution };
         });
         return finish("PROCESSED", effects);
       }

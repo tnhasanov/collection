@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/server/db";
 import { getSessionUser } from "@/server/auth/session";
 import { hasPermission } from "@/server/auth/permissions";
+import { customerScope, scopeIsUnscoped } from "@/server/auth/scope";
+import { now } from "@/server/clock";
 import { listWorkQueue, queueHeader } from "@/server/modules/work/queueService";
 import { Badge, Card, Kpi } from "@/components/ui";
 import { Pagination } from "@/components/ui/Table";
@@ -25,7 +27,9 @@ export default async function WorkQueuePage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page ?? 1));
   const filters = { queue: (sp.queue as "mine" | "all") ?? "mine", eligibility: (sp.eligibility as "ELIGIBLE" | "") ?? "", band: sp.band ?? "", bucket: sp.bucket ?? "", riskClass: sp.riskClass ?? "", language: sp.language ?? "", branch: sp.branch ?? "", page, pageSize: 25 } as const;
-  const [header, data] = await Promise.all([queueHeader(prisma, user), listWorkQueue(prisma, user, filters)]);
+  const t = await now();
+  const scope = await customerScope(prisma, user, t);
+  const [header, data] = await Promise.all([queueHeader(prisma, user, scope, t), listWorkQueue(prisma, user, filters, scope)]);
   const hrefFor = (p: number) => {
     const q = new URLSearchParams({ ...Object.fromEntries(Object.entries(sp).filter(([, v]) => v)) as Record<string, string>, page: String(p) });
     return `/work-queue?${q.toString()}`;
@@ -42,6 +46,7 @@ export default async function WorkQueuePage({ searchParams }: { searchParams: Pr
       </div>
       <p className="mt-2 text-xs text-muted">
         Policy {header.policyVersion} · last decision refresh {formatBakuDateTime(header.lastRefresh)} · agents active {header.agentsActive}
+        {!scopeIsUnscoped(scope) && " · Showing only customers in your scope; pooled work appears after the dialer allocates it or you claim it."}
       </p>
       <QueueFilters current={{ ...filters }} />
       <Card padded={false} className="mt-3">

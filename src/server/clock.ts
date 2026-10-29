@@ -63,6 +63,17 @@ export async function getClock(): Promise<Clock> {
   return clock;
 }
 
+/**
+ * Synchronous access to the domain clock for callers that cannot await (the mock provider adapter stamps its
+ * events with it). The worker primes the cache with getClock() before any adapter use and refreshes it every tick;
+ * outside DEMO offset mode this is simply the system clock.
+ */
+export function getClockSync(): Clock {
+  if (override) return override;
+  if (process.env.APP_MODE !== "DEMO" || process.env.DEMO_CLOCK_MODE === "real") return new SystemClock();
+  return cached?.clock ?? new OffsetClock(0);
+}
+
 export async function now(): Promise<Date> {
   return (await getClock()).now();
 }

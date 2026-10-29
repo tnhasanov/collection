@@ -6,6 +6,8 @@ import { SEGMENT_LABELS } from "@/server/modules/decisions/segments";
 import { ACTION_LABELS, type ActionCode } from "@/server/modules/decisions/treatment";
 import { getSetting } from "@/server/modules/settings/settingsService";
 import type { DecisionSegment } from "@/generated/prisma/enums";
+import { forbidden } from "@/server/errors";
+import { ATTRIBUTION_RULE_VERSION, attributedCashByAgent } from "@/server/modules/payments/attribution";
 
 /**
  * Portfolio and collection analytics (S18). Every ratio carries numerator, denominator, scope, maturation
@@ -28,7 +30,21 @@ export const ANALYTICS_TABS = [
 ] as const;
 export type AnalyticsTab = (typeof ANALYTICS_TABS)[number]["key"];
 
-export interface AnalyticsFilters { from?: string; to?: string; branch?: string; segment?: string; riskClass?: number; bucket?: number; owner?: string; strategyVersionId?: string; arm?: string }
+export interface AnalyticsFilters { from?: string; to?: string; branch?: string; branches?: string[]; segment?: string; riskClass?: number; bucket?: number; owner?: string; strategyVersionId?: string; arm?: string }
+
+/** Branch condition: an explicit branch filter, else the caller's branch scopes (set by applyBranchScope), else none. */
+function branchCond(filters: AnalyticsFilters): string | { in: string[] } | undefined {
+  if (filters.branch) return filters.branch;
+  if (filters.branches?.length) return { in: filters.branches };
+  return undefined;
+}
+
+/** Restricts analytics (and exports) to the user's branch scopes; a branch filter outside them is refused, never widened. */
+export function applyBranchScope(user: { branchScopes: string[] }, filters: AnalyticsFilters): AnalyticsFilters {
+  if (!user.branchScopes.length) return filters;
+  if (filters.branch && !user.branchScopes.includes(filters.branch)) throw forbidden("Branch outside your scope");
+  return filters.branch ? filters : { ...filters, branches: [...user.branchScopes] };
+}
 
 export interface RatioDef { code: string; name: string; numerator: string; denominator: string; scope: string; unit: string; version: string; maturation?: string }
 export interface TabResult {
@@ -71,7 +87,7 @@ function snapshotWhere(filters: AnalyticsFilters) {
     ...(filters.riskClass ? { riskClass: filters.riskClass } : {}),
     ...(filters.bucket ? { actionBucket: filters.bucket } : {}),
     ...(filters.strategyVersionId ? { strategyVersionId: filters.strategyVersionId } : {}),
-    ...(filters.branch ? { customer: { branch: filters.branch } } : {}),
+    ...(branchCond(filters) ? { customer: { branch: branchCond(filters) } } : {}),
     ...(filters.owner ? { case: { ownerUserId: filters.owner } } : {}),
     ...(filters.arm ? { customer: { experimentAssignments: { some: { arm: filters.arm } } } } : {}),
   };
@@ -88,7 +104,7 @@ export async function analyticsTab(db: Db, tab: AnalyticsTab, filters: Analytics
       const snaps = await db.decisionSnapshot.findMany({ where: snapshotWhere(filters), select: { segment: true, exposure: true, totalOverdue: true, customerId: true } });
       const bySeg = new Map<string, { customers: number; exposure: Decimal; overdue: Decimal }>();
       for (const s of snaps) { const e = bySeg.get(s.segment) ?? { customers: 0, exposure: dec(0), overdue: dec(0) }; e.customers++; e.exposure = e.exposure.plus(s.exposure.toString()); e.overdue = e.overdue.plus(s.totalOverdue.toString()); bySeg.set(s.segment, e); }
-      const current = await db.loan.count({ where: { status: "ACTIVE", dpd: 0, ...(filters.branch ? { branch: filters.branch } : {}) } });
+      const current = await db.loan.count({ where: { status: "ACTIVE", dpd: 0, ...(branchCond(filters) ? { branch: branchCond(filters) } : {}) } });
       const total = snaps.length;
       const rows = Object.keys(SEGMENT_LABELS).filter((k) => bySeg.has(k)).map((k) => { const e = bySeg.get(k)!; return { segment: SEGMENT_LABELS[k as DecisionSegment], customers: e.customers, shareOfCustomers: ratio(e.customers, total), exposure: f2(e.exposure), totalOverdue: f2(e.overdue), drill: `/customers?segment=${k}` }; });
       return { ...base, columns: [{ key: "segment", label: "DPD segment" }, { key: "customers", label: "Customers (open cases)", kind: "count" }, { key: "shareOfCustomers", label: "Share", kind: "ratio" }, { key: "exposure", label: "Exposure AZN", kind: "money" }, { key: "totalOverdue", label: "Overdue AZN", kind: "money" }, { key: "drill", label: "Drill", kind: "link" }], rows, ratios: [], notes: [`Open-case customers in the current daily snapshot; ${current} active loans are current (DPD 0) and outside the collections population.`, "Counts are customers (one case per customer); exposure uses the demo exposure definition."], drill: [{ label: "Work queue", href: "/work-queue" }] };
@@ -113,14 +129,14 @@ export async function analyticsTab(db: Db, tab: AnalyticsTab, filters: Analytics
       return { ...base, columns: [{ key: "from", label: "From" }, { key: "to", label: "To" }, { key: "customers", label: "Customers", kind: "count" }, { key: "share", label: "Share of origin", kind: "ratio" }], rows, ratios: await metricDefs(db, ["CURE", "ROLL_FORWARD"]), notes: [...notes, `Window ${w.label}. Cure = zero overdue confirmed by verified core postings; partial payments never cure.`], drill: [{ label: "Customers", href: "/customers" }] };
     }
     case "cohorts": {
-      const cases = await db.collectionCase.findMany({ where: { openedAt: { gte: w.from, lte: w.to }, ...(filters.owner ? { ownerUserId: filters.owner } : {}), ...(filters.branch ? { customer: { branch: filters.branch } } : {}) }, select: { openedAt: true, status: true, entryExposure: true, modelExposure: true, entryDpd: true } });
+      const cases = await db.collectionCase.findMany({ where: { openedAt: { gte: w.from, lte: w.to }, ...(filters.owner ? { ownerUserId: filters.owner } : {}), ...(branchCond(filters) ? { customer: { branch: branchCond(filters) } } : {}) }, select: { openedAt: true, status: true, entryExposure: true, modelExposure: true, entryDpd: true } });
       const byWeek = new Map<string, { entered: number; exposure: Decimal; cured: number; open: number; handover: number; avgEntryDpd: number[] }>();
       for (const c of cases) { const k = DateTime.fromJSDate(c.openedAt, { zone: BAKU_ZONE }).startOf("week").toISODate()!; const e = byWeek.get(k) ?? { entered: 0, exposure: dec(0), cured: 0, open: 0, handover: 0, avgEntryDpd: [] }; e.entered++; e.exposure = e.exposure.plus((c.entryExposure ?? c.modelExposure).toString()); if (c.status === "CURED") e.cured++; if (c.status === "OPEN") e.open++; if (c.status === "HANDOVER") e.handover++; if (c.entryDpd !== null) e.avgEntryDpd.push(c.entryDpd); byWeek.set(k, e); }
       const rows = [...byWeek.entries()].sort().map(([week, e]) => ({ entryWeek: week, entered: e.entered, entryExposure: f2(e.exposure), avgEntryDpd: e.avgEntryDpd.length ? (e.avgEntryDpd.reduce((a, b) => a + b, 0) / e.avgEntryDpd.length).toFixed(1) : null, cured: e.cured, cureRate: ratio(e.cured, e.entered), stillOpen: e.open, handover: e.handover }));
       return { ...base, columns: [{ key: "entryWeek", label: "Entry week (Mon)" }, { key: "entered", label: "Entered", kind: "count" }, { key: "entryExposure", label: "Entry exposure AZN", kind: "money" }, { key: "avgEntryDpd", label: "Avg entry DPD" }, { key: "cured", label: "Cured", kind: "count" }, { key: "cureRate", label: "Cure rate", kind: "ratio" }, { key: "stillOpen", label: "Open", kind: "count" }, { key: "handover", label: "Handover", kind: "count" }], rows, ratios: await metricDefs(db, ["CURE"]), notes: [`Fixed entry cohorts by case open date, window ${w.label}. Cure rates of recent cohorts are immature (maturation 30 days) and will change.`], drill: [] };
     }
     case "cash": {
-      const payments = await db.payment.findMany({ where: { status: { in: ["POSTED", "REVERSED"] }, valueDate: { gte: w.from, lte: w.to }, reversalOfId: null, ...(filters.branch ? { loan: { branch: filters.branch } } : {}) }, select: { valueDate: true, amount: true, status: true, promiseLinks: { select: { amount: true, reversed: true } }, reversedBy: { select: { amount: true } } } });
+      const payments = await db.payment.findMany({ where: { status: { in: ["POSTED", "REVERSED"] }, valueDate: { gte: w.from, lte: w.to }, reversalOfId: null, ...(branchCond(filters) ? { loan: { branch: branchCond(filters) } } : {}) }, select: { valueDate: true, amount: true, status: true, promiseLinks: { select: { amount: true, reversed: true } }, reversedBy: { select: { amount: true } } } });
       const byDay = new Map<string, { posted: Decimal; reversed: Decimal; count: number; promiseAttributed: Decimal }>();
       for (const p of payments) { const k = fromDbDate(p.valueDate)!; const e = byDay.get(k) ?? { posted: dec(0), reversed: dec(0), count: 0, promiseAttributed: dec(0) }; e.posted = e.posted.plus(p.amount.toString()); e.count++; if (p.reversedBy) e.reversed = e.reversed.plus(p.reversedBy.amount.toString()); for (const l of p.promiseLinks) if (!l.reversed) e.promiseAttributed = e.promiseAttributed.plus(l.amount.toString()); byDay.set(k, e); }
       const rows = [...byDay.entries()].sort().map(([day, e]) => ({ valueDate: day, payments: e.count, posted: f2(e.posted), reversed: f2(e.reversed), net: f2(e.posted.minus(e.reversed)), promiseAttributed: f2(e.promiseAttributed), drill: `/payments?tab=posted` }));
@@ -201,6 +217,7 @@ export async function analyticsTab(db: Db, tab: AnalyticsTab, filters: Analytics
     }
     case "agents": {
       const agents = await db.user.findMany({ where: { role: { in: ["AGENT", "SENIOR_AGENT"] }, isActive: true }, select: { id: true, displayName: true, role: true, team: { select: { name: true } } } });
+      const attributed = await attributedCashByAgent(db, { from: w.from, to: w.to });
       const rows: Record<string, string | number | null>[] = [];
       for (const a of agents) {
         const [attempts, rpc, ptp, backlog] = await Promise.all([
@@ -209,14 +226,14 @@ export async function analyticsTab(db: Db, tab: AnalyticsTab, filters: Analytics
           db.promise.count({ where: { createdByUserId: a.id, createdAt: { gte: w.from, lte: w.to } } }),
           db.workItem.count({ where: { ownerUserId: a.id, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } } }),
         ]);
-        const cash = await db.promisePaymentLink.findMany({ where: { reversed: false, promise: { createdByUserId: a.id }, createdAt: { gte: w.from, lte: w.to } }, select: { amount: true } });
         const rpcN = rpc.filter((r) => r.isRpc).length;
-        rows.push({ agent: a.displayName, role: a.role, team: a.team?.name ?? "—", attempts, distinctCustomers: new Set(rpc.map((r) => r.customerId)).size, rpc: rpcN, rpcRate: ratio(rpcN, attempts), ptp: ptp, ptpConversion: ratio(ptp, rpcN), attributedCash: f2(cash.reduce((s, c) => s.plus(c.amount.toString()), dec(0))), backlog });
+        rows.push({ agent: a.displayName, role: a.role, team: a.team?.name ?? "—", attempts, distinctCustomers: new Set(rpc.map((r) => r.customerId)).size, rpc: rpcN, rpcRate: ratio(rpcN, attempts), ptp: ptp, ptpConversion: ratio(ptp, rpcN), attributedCash: attributed.get(a.id) ?? "0.00", backlog });
       }
-      return { ...base, columns: [{ key: "agent", label: "Agent" }, { key: "role", label: "Role" }, { key: "team", label: "Team" }, { key: "attempts", label: "Attempts", kind: "count" }, { key: "distinctCustomers", label: "Distinct customers", kind: "count" }, { key: "rpc", label: "RPC", kind: "count" }, { key: "rpcRate", label: "RPC rate", kind: "ratio" }, { key: "ptp", label: "PTP", kind: "count" }, { key: "ptpConversion", label: "PTP conversion", kind: "ratio" }, { key: "attributedCash", label: "Attributed cash AZN", kind: "money" }, { key: "backlog", label: "Backlog", kind: "count" }], rows, ratios: await metricDefs(db, ["RPC_RATE_ATTEMPT", "PTP_CONVERSION", "AGENT_ATTRIBUTED_CASH"]), notes: [`Window ${w.label}. Attributed cash counts each verified payment once (promise attribution); duplicate attempts are not rewarded. Compare with case mix and exposure (S17) before judging productivity.`], drill: [{ label: "Operations", href: "/operations" }] };
+      if (attributed.get(null)) rows.push({ agent: "Unattributed (no qualifying conversation)", role: "—", team: "—", attempts: null, distinctCustomers: null, rpc: null, rpcRate: null, ptp: null, ptpConversion: null, attributedCash: attributed.get(null) ?? "0.00", backlog: null });
+      return { ...base, columns: [{ key: "agent", label: "Agent" }, { key: "role", label: "Role" }, { key: "team", label: "Team" }, { key: "attempts", label: "Attempts", kind: "count" }, { key: "distinctCustomers", label: "Distinct customers", kind: "count" }, { key: "rpc", label: "RPC", kind: "count" }, { key: "rpcRate", label: "RPC rate", kind: "ratio" }, { key: "ptp", label: "PTP", kind: "count" }, { key: "ptpConversion", label: "PTP conversion", kind: "ratio" }, { key: "attributedCash", label: "Attributed cash AZN", kind: "money" }, { key: "backlog", label: "Backlog", kind: "count" }], rows, ratios: await metricDefs(db, ["RPC_RATE_ATTEMPT", "PTP_CONVERSION", "AGENT_ATTRIBUTED_CASH"]), notes: [`Window ${w.label}. Attributed cash follows rule ${ATTRIBUTION_RULE_VERSION}: each verified posted payment is credited once, to the agent of the latest verified conversation inside the attribution window, by Baku reporting date; reversals remove the credit. The same rows feed the agent dashboard and the team grid.`], drill: [{ label: "Operations", href: "/operations" }] };
     }
     case "vintage": {
-      const loans = await db.loan.findMany({ where: { ...(filters.branch ? { branch: filters.branch } : {}) }, select: { originationDate: true, principalOriginal: true, principalOutstanding: true, dpd: true, status: true } });
+      const loans = await db.loan.findMany({ where: { ...(branchCond(filters) ? { branch: branchCond(filters) } : {}) }, select: { originationDate: true, principalOriginal: true, principalOutstanding: true, dpd: true, status: true } });
       const by = new Map<string, { n: number; original: Decimal; outstanding: Decimal; arrears: number; dpdSum: number; paidOff: number }>();
       for (const l of loans) { const k = fromDbDate(l.originationDate)!.slice(0, 7); const e = by.get(k) ?? { n: 0, original: dec(0), outstanding: dec(0), arrears: 0, dpdSum: 0, paidOff: 0 }; e.n++; e.original = e.original.plus(l.principalOriginal.toString()); e.outstanding = e.outstanding.plus(l.principalOutstanding.toString()); if (l.dpd > 0) e.arrears++; e.dpdSum += l.dpd; if (l.status === "PAID_OFF") e.paidOff++; by.set(k, e); }
       const rows = [...by.entries()].sort().map(([month, e]) => ({ vintage: month, loans: e.n, principalOriginal: f2(e.original), principalOutstanding: f2(e.outstanding), inArrears: e.arrears, arrearsShare: ratio(e.arrears, e.n), avgDpd: (e.dpdSum / e.n).toFixed(1), paidOff: e.paidOff }));

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { ok, fail, parseBody } from "@/server/http";
-import { createSession, requireUser, revokeSession, SESSION_COOKIE } from "@/server/auth/session";
+import { createSession, isDemoMode, requireUser, revokeSession, SESSION_COOKIE } from "@/server/auth/session";
 import { landingPathForRole } from "@/server/auth/permissions";
 import { appendAudit } from "@/server/modules/audit/audit";
 import { forbidden } from "@/server/errors";
@@ -9,10 +9,10 @@ import { cookies } from "next/headers";
 
 const schema = z.object({ username: z.string().min(1) });
 
-/** DEMO-only role switching for walkthroughs. Refused in INTEGRATION mode and audited. It never grants approval rights to the maker. */
+/** DEMO-only role switching for walkthroughs. Refused in PILOT and INTEGRATION modes and audited. It never grants approval rights to the maker. */
 export async function POST(req: Request) {
   try {
-    if (process.env.APP_MODE !== "DEMO") throw forbidden("Role switching is disabled outside DEMO mode");
+    if (!isDemoMode()) throw forbidden("Role switching is disabled outside DEMO mode");
     const current = await requireUser("demo.switch-role");
     const { username } = await parseBody(req, schema);
     const target = await prisma.user.findUnique({ where: { username } });

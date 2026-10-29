@@ -63,6 +63,14 @@ export const DEFAULT_SETTINGS: SettingDefinition[] = [
   { key: "outbound.pausedChannels", group: "outbound", value: [], provenance: "DEMO_ASSUMPTION", description: "Channels paused by an authorized operator (VOICE, SMS).", editableRoles: ["COLLECTIONS_HEAD", "TEAM_LEAD", "ADMIN", "INTEGRATION_OPERATOR"] },
   { key: "outbound.pausedCampaigns", group: "outbound", value: [], provenance: "DEMO_ASSUMPTION", description: "Campaign codes paused by a supervisor.", editableRoles: ["COLLECTIONS_HEAD", "TEAM_LEAD", "ADMIN"] },
 
+  // Promises and reminders (draft demo values; bank approval pending)
+  { key: "promise.policy", group: "promise", value: { maxHorizonDays: 30, deadlineCalendarRule: "NEXT_BUSINESS_DAY_GRACE" }, provenance: "DEMO_ASSUMPTION", description: "DRAFT: maximum promise horizon in days from today; a deadline on a non-permitted day keeps its date and the settlement allowance extends to the next business day. A date outside the horizon becomes a proposed exception, never a promise.", editableRoles: POLICY_EDITORS },
+  { key: "reminders.sendTimeBaku", group: "promise", value: "10:00", provenance: "DEMO_ASSUMPTION", description: "DRAFT: local time at which promise reminders are scheduled (moved to the next permitted time when outside permitted hours).", editableRoles: POLICY_EDITORS },
+  { key: "attribution.windowDays", group: "promise", value: 10, provenance: "DEMO_ASSUMPTION", description: "DRAFT: a verified posted payment is attributed to the agent of the latest verified conversation within this many days (rule ATTRIB-1).", editableRoles: POLICY_EDITORS },
+
+  // Access scope
+  { key: "access.scopedHistoryDays", group: "access", value: 14, provenance: "DEMO_ASSUMPTION", description: "Agents keep access to a customer they handled for this many days after their last own interaction or promise activity; open calls, owned work and active promises are always in scope. Draft value pending bank approval.", editableRoles: ["COLLECTIONS_HEAD", "ADMIN"] },
+
   // Clock
   { key: "clock.demoBusinessDate", group: "clock", value: "2026-10-27", provenance: "DEMO_ASSUMPTION", description: "Seeded demo business date (Asia/Baku)." },
   { key: "clock.demoOffsetMs", group: "clock", value: 0, provenance: "DEMO_ASSUMPTION", description: "Offset applied to the host clock so the seeded business date is 'today' at seed time.", editableRoles: ADMIN_ONLY },

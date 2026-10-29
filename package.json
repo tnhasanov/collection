@@ -23,6 +23,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:seed": "tsx prisma/seed.ts",
+    "pilot:users": "tsx scripts/create-pilot-users.ts",
     "db:studio": "prisma studio",
     "screenshots": "node e2e/screenshots.mjs",
     "measure": "node e2e/measure.mjs",

@@ -10,12 +10,19 @@ import { allocateForReadyAgents, expireStaleReservations, type ScheduleEvents } 
 import type { NormalizedProviderEvent } from "@/server/modules/dialer/contract";
 import { runDailyDecision } from "@/server/modules/decisions/decisionRun";
 import { dispatchDigitalReminders, expireLeases, refreshDueWork, refreshMockSources, runPromiseMaturation } from "@/server/modules/jobs/maintenance";
+import { runDailyAging } from "@/server/modules/jobs/aging";
+import { runCatchUp } from "@/server/modules/jobs/catchUp";
+import { reconcileProviderState } from "@/server/modules/dialer/providerReconciliation";
+import { dispatchDueReminders } from "@/server/modules/promises/reminderService";
 import { evaluateCustomerEligibility } from "@/server/modules/contactPolicy/contextBuilder";
+import { isSyntheticMode } from "@/server/auth/session";
 
 /**
  * Durable background worker (pg-boss on PostgreSQL). Owns the dialer adapter instance so provider state is
  * consistent; processes the transactional outbox, delivers mock provider events, allocates work to
- * confirmed-Ready agents, matures promises, refreshes mock sources and runs the daily decision snapshot.
+ * confirmed-Ready agents, matures promises, dispatches reminders, refreshes mock sources, reconciles provider
+ * state and runs the daily decision snapshot. On start it primes the domain clock, rebuilds the provider's view
+ * from persisted facts and runs an idempotent catch-up for anything missed while it was down.
  */
 const QUEUES = {
   outbox: "outbox.dispatch",
@@ -23,19 +30,25 @@ const QUEUES = {
   allocate: "dialer.allocate",
   maintenance: "maintenance.tick",
   promises: "promise.mature",
+  reminders: "reminder.dispatch",
+  reconcile: "provider.reconcile",
   sources: "source.refresh",
   decision: "decision.daily",
   sms: "sms.dispatch",
 } as const;
 
 const WORKER_ID = `worker-${os.hostname()}-${process.pid}`;
+const VERSION = "0.2.0";
 
 async function main() {
   const prisma = createPrismaClient();
   const boss = new PgBoss({ connectionString: process.env.DATABASE_URL, schema: process.env.PGBOSS_SCHEMA ?? "pgboss" });
   boss.on("error", (e) => console.error("[pg-boss]", e));
   await boss.start();
+  // Prime the domain clock before the adapter stamps anything (the adapter reads it synchronously).
+  await getClock();
   const adapter = getDialerAdapter();
+  const capabilities = await adapter.capabilities();
 
   for (const q of Object.values(QUEUES)) await boss.createQueue(q, { retryLimit: 3, retryDelay: 2, retryBackoff: true });
 
@@ -44,6 +57,19 @@ async function main() {
       await boss.send(QUEUES.mockDeliver, { event: step.event }, { startAfter: Math.ceil(step.delayMs / 1000), singletonKey: step.event.providerEventId, retryLimit: 5 });
     }
   };
+
+  const heartbeat = async (extra: Record<string, unknown> = {}) => {
+    await prisma.workerHeartbeat.upsert({
+      where: { id: WORKER_ID },
+      create: { id: WORKER_ID, hostname: os.hostname(), lastSeenAt: new Date(), version: VERSION, capabilitiesJson: capabilities as never, ...extra },
+      update: { lastSeenAt: new Date(), version: VERSION, capabilitiesJson: capabilities as never, ...extra },
+    });
+  };
+
+  await heartbeat();
+  const catchUp = await runCatchUp(prisma, adapter, (await getClock()).now(), scheduleEvents);
+  await heartbeat({ lastCatchUpAt: new Date() });
+  console.log(`[worker] catch-up ${JSON.stringify(catchUp)}`);
 
   await boss.work<{ event: NormalizedProviderEvent }>(QUEUES.mockDeliver, { batchSize: 5 }, async (jobs) => {
     const now = (await getClock()).now();
@@ -70,7 +96,7 @@ async function main() {
     const now = (await getClock()).now();
     await expireLeases(prisma, now);
     await refreshDueWork(prisma, now);
-    await prisma.workerHeartbeat.upsert({ where: { id: WORKER_ID }, create: { id: WORKER_ID, hostname: os.hostname(), lastSeenAt: new Date(), version: "0.1.0" }, update: { lastSeenAt: new Date() } });
+    await heartbeat();
   });
 
   await boss.work(QUEUES.promises, { batchSize: 1 }, async () => {
@@ -79,9 +105,22 @@ async function main() {
     if (r.length) console.log(`[promises] matured ${r.length}`);
   });
 
+  await boss.work(QUEUES.reminders, { batchSize: 1 }, async () => {
+    const now = (await getClock()).now();
+    const r = await dispatchDueReminders(prisma, now);
+    if (r.due) console.log(`[reminders] due ${r.due} sent ${r.sent} skipped ${r.skipped} rescheduled ${r.rescheduled}`);
+  });
+
+  await boss.work(QUEUES.reconcile, { batchSize: 1 }, async () => {
+    const now = (await getClock()).now();
+    const r = await reconcileProviderState(prisma, adapter, now, scheduleEvents);
+    if (r.endedFromProvider || r.unknownAtProvider || r.sessionsCorrected) console.log(`[reconcile] ${JSON.stringify(r)}`);
+  });
+
   await boss.work(QUEUES.sources, { batchSize: 1 }, async () => {
     const now = (await getClock()).now();
-    if (process.env.APP_MODE === "DEMO") await refreshMockSources(prisma, now);
+    if (isSyntheticMode()) await refreshMockSources(prisma, now);
+    else await runDailyAging(prisma, now, { reason: "scheduled aging" });
   });
 
   await boss.work(QUEUES.sms, { batchSize: 1 }, async () => {
@@ -95,6 +134,7 @@ async function main() {
 
   await boss.work(QUEUES.decision, { batchSize: 1 }, async () => {
     const now = (await getClock()).now();
+    await runDailyAging(prisma, now, { reason: "pre-decision aging" });
     const run = await prisma.jobRun.create({ data: { name: "decision.daily", status: "RUNNING" } });
     try {
       const summary = await runDailyDecision(prisma, { triggeredBy: "worker:decision.daily", now });
@@ -110,8 +150,11 @@ async function main() {
   await boss.schedule(QUEUES.decision, "0 5 * * *", {}, { tz: "Asia/Baku" });
   await boss.schedule(QUEUES.sources, "*/2 * * * *", {});
   await boss.schedule(QUEUES.promises, "* * * * *", {});
+  await boss.schedule(QUEUES.reminders, "* * * * *", {});
+  await boss.schedule(QUEUES.reconcile, "* * * * *", {});
   await boss.schedule(QUEUES.sms, "*/5 * * * *", {});
   const tick = async () => {
+    await getClock(); // refresh the cached demo offset so synchronous readers stay current
     await boss.send(QUEUES.outbox, {}, { singletonKey: "tick", singletonSeconds: 1 });
     await boss.send(QUEUES.allocate, {}, { singletonKey: "tick", singletonSeconds: 2 });
     await boss.send(QUEUES.maintenance, {}, { singletonKey: "tick", singletonSeconds: 15 });
@@ -119,7 +162,7 @@ async function main() {
   await tick();
   const interval = setInterval(() => void tick().catch((e) => console.error("[tick]", e)), 1000);
 
-  console.log(`[worker] ${WORKER_ID} started (mode ${process.env.APP_MODE}, dialer ${(await adapter.capabilities()).provider})`);
+  console.log(`[worker] ${WORKER_ID} started (mode ${process.env.APP_MODE}, dialer ${capabilities.provider} ${capabilities.version})`);
   const shutdown = async () => {
     clearInterval(interval);
     await boss.stop({ graceful: true });

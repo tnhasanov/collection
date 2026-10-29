@@ -116,3 +116,26 @@ export function CancelPromiseButton({ id }: { id: string }) {
     </Button>
   );
 }
+
+export function ResendReminderButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      disabled={busy}
+      title="Sends the approved PTP reminder now after the same rechecks as a scheduled reminder (promise still active, recipient verified, permitted hours, SMS eligibility)"
+      onClick={async () => {
+        setBusy(true);
+        const r = await fetch(`/api/promises/${id}/reminders/resend`, { method: "POST" });
+        const j = await r.json();
+        setBusy(false);
+        if (!j.ok) window.alert(j.error.message);
+        else window.alert(`Reminder ${j.data.status.toLowerCase()}${j.data.reason ? `: ${j.data.reason}` : ""}`);
+        router.refresh();
+      }}
+    >
+      {busy ? "Sending…" : "Resend reminder"}
+    </Button>
+  );
+}

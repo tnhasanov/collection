@@ -7,7 +7,7 @@ import { t, type Locale } from "@/i18n/dictionaries";
 export interface TopbarProps {
   locale: Locale;
   user: { displayName: string; roleLabel: string; username: string };
-  mode: "DEMO" | "INTEGRATION";
+  mode: "DEMO" | "PILOT" | "INTEGRATION";
   businessDate: string;
   freshness: { label: string; tone: "success" | "warning" | "danger" };
   notifications: number;
@@ -47,7 +47,7 @@ export function Topbar(p: TopbarProps) {
         </label>
         <input id="global-search" className="input" placeholder={t(p.locale, "topbar.search")} value={q} onChange={(e) => setQ(e.target.value)} />
       </form>
-      <Badge tone={p.mode === "DEMO" ? "warning" : "info"}>{p.mode === "DEMO" ? t(p.locale, "topbar.demo") : t(p.locale, "topbar.integration")}</Badge>
+      <Badge tone={p.mode === "DEMO" ? "warning" : p.mode === "PILOT" ? "brand" : "info"} title={p.mode === "PILOT" ? "Synthetic data, mock integrations, individual tester identities" : undefined}>{t(p.locale, p.mode === "DEMO" ? "topbar.demo" : p.mode === "PILOT" ? "topbar.pilot" : "topbar.integration")}</Badge>
       <span className="text-xs text-muted">
         {t(p.locale, "topbar.businessDate")}: <span className="font-medium text-ink">{p.businessDate}</span>
       </span>
@@ -69,7 +69,7 @@ export function Topbar(p: TopbarProps) {
         </button>
         {menu && (
           <div role="menu" className={cx("absolute right-0 mt-1 w-72 rounded-md border border-line bg-surface p-2 shadow-lg")}>
-            {p.mode === "DEMO" && (
+            {p.mode === "DEMO" && p.demoUsers.length > 0 && (
               <div className="mb-2 border-b border-line pb-2">
                 <p className="mb-1 px-2 text-[11px] font-bold uppercase tracking-wider text-muted">Demo role switch (audited)</p>
                 <ul className="max-h-60 overflow-auto">
@@ -82,6 +82,11 @@ export function Topbar(p: TopbarProps) {
                   ))}
                 </ul>
               </div>
+            )}
+            {p.mode !== "INTEGRATION" && (
+              <a role="menuitem" href="/account/password" className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-brand-light">
+                Change password
+              </a>
             )}
             <button type="button" role="menuitem" className="w-full rounded px-2 py-1 text-left text-sm hover:bg-brand-light" onClick={logout}>
               {t(p.locale, "topbar.signOut")}

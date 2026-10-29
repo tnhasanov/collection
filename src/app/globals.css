@@ -46,8 +46,11 @@ body {
   border-radius: 4px;
 }
 
-a {
-  color: var(--color-brand);
+/* Default link colour lives in the base layer so component classes (sidebar links, buttons, tabs) always win the cascade. */
+@layer base {
+  a {
+    color: var(--color-brand);
+  }
 }
 
 @layer components {
@@ -210,16 +213,36 @@ a {
     @apply text-right tabular-nums;
   }
 
+  /* Sidebar links: light readable labels on the deep purple sidebar; explicit colour on every state. */
   .nav-link {
-    @apply flex items-center gap-2 rounded-md px-3 py-2 text-sm text-white/85 hover:bg-white/10 hover:text-white;
+    @apply flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium;
+    color: rgba(255, 255, 255, 0.88);
+    min-height: 38px;
+  }
+  .nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
+  .nav-link:focus-visible {
+    outline: 3px solid var(--color-yellow);
+    outline-offset: -3px;
+    color: #ffffff;
   }
   .nav-link[aria-current="page"] {
     background: var(--color-brand);
-    color: #fff;
+    color: #ffffff;
     box-shadow: inset 4px 0 0 var(--color-yellow);
   }
+  .nav-link[aria-disabled="true"] {
+    color: rgba(255, 255, 255, 0.4);
+    pointer-events: none;
+  }
+  .nav-link .nav-screen {
+    color: rgba(255, 255, 255, 0.45);
+  }
   .nav-group {
-    @apply mt-4 mb-1 px-3 text-[10px] font-bold tracking-wider uppercase text-white/55;
+    @apply mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider uppercase;
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .callout {

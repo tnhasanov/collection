@@ -55,6 +55,7 @@ model User {
   branchScopes     String[]
   isActive         Boolean   @default(true)
   isServiceAccount Boolean   @default(false)
+  mustChangePassword Boolean @default(false)
   identityRef      String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -166,6 +167,7 @@ model Customer {
   outboundMessages OutboundMessage[]
   experimentAssignments ExperimentAssignment[]
   arrangements     Arrangement[]
+  relatedParties   RelatedParty[]
 }
 
 enum ContactType {
@@ -246,6 +248,8 @@ model Loan {
   nextDueAmount        Decimal? @db.Decimal(18, 2)
   balanceVersion       Int      @default(1)
   balancesAsOf         DateTime
+  /// Baku business date for which DPD/arrears were last derived (daily aging catch-up is idempotent on this).
+  agedForDate          DateTime? @db.Date
   sourceSystem         String   @default("CORE_DEMO")
   sourceVersion        String   @default("1")
   lastPaymentAt        DateTime?
@@ -390,6 +394,7 @@ model Payment {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   allocations          PaymentAllocation[]
+  attribution          PaymentAttribution?
   promiseLinks         PromisePaymentLink[]
   exceptions           ExceptionCase[]
 
@@ -933,6 +938,10 @@ enum BusinessOutcome {
   REFUSED
   SPECIAL_REFERRAL
   NO_CONVERSATION
+  /// Overdue cleared by a verified posting while the conversation was open ("Gecikmə bağlanıb").
+  DELINQUENCY_CLOSED
+  /// Customer proposed a promise date outside policy; recorded as a proposed exception, never as a promise.
+  PTP_EXCEPTION_PROPOSED
 }
 
 enum NonPaymentReason {
@@ -1028,8 +1037,11 @@ model Interaction {
   dispositionVersion   String?
   policyVersionId      String?
   isRpc                Boolean            @default(false)
+  /// Provider-confirmed call-control state: { muted, held, pending: [{action,key,requestedAt}], lastError, lastErrorAt, endRequestedAt, providerState }
+  controlState         Json?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
+  attributions         PaymentAttribution[]
   segments             InteractionSegment[]
   corrections          OutcomeCorrection[]
   promises             Promise[]
@@ -1106,10 +1118,13 @@ model Promise {
   changeReason           String?
   previousPromiseId      String?
   maturedAt              DateTime?
+  /// Incremented on every change that affects reminders (amount, deadline, status); reminder jobs recheck it before sending.
+  version                Int           @default(1)
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
   paymentLinks           PromisePaymentLink[]
   events                 PromiseEvent[]
+  reminders              ReminderJob[]
 
   @@index([customerId, status])
   @@index([deadlineDate, status])
@@ -1179,6 +1194,11 @@ model SupportCase {
   restrictsCalls   Boolean           @default(true)
   resolution       String?
   slaDueAt         DateTime?
+  /// Special cases: who reported it (relation to the customer) and through which channel/source; reported vs confirmed.
+  reporterRelation String?
+  reportSource     String?
+  confirmedAt      DateTime?
+  confirmedBy      String?
   createdAt        DateTime          @default(now())
   resolvedAt       DateTime?
   arrangements     Arrangement[]
@@ -1399,8 +1419,92 @@ model OutboundMessage {
   sentAt         DateTime?
   deliveredAt    DateTime?
   failureReason  String?
+  /// CAMPAIGN | PTP_REMINDER | PAYMENT_INSTRUCTIONS | MANUAL
+  kind           String        @default("CAMPAIGN")
+  segments       Int?
+  estimatedCost  Decimal?      @db.Decimal(12, 4)
+  reminderJobs   ReminderJob[]
 
   @@index([customerId, requestedAt])
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+/// Durable promise reminder: scheduled from the promise, rechecked immediately before dispatch, deduplicated by key.
+model ReminderJob {
+  id                String          @id @default(cuid())
+  promiseId         String
+  promise           Promise         @relation(fields: [promiseId], references: [id], onDelete: Cascade)
+  customerId        String
+  kind              String
+  dedupKey          String          @unique
+  scheduledFor      DateTime
+  promiseVersion    Int
+  status            ReminderStatus  @default(SCHEDULED)
+  attempts          Int             @default(0)
+  reason            String?
+  outboundMessageId String?
+  outboundMessage   OutboundMessage? @relation(fields: [outboundMessageId], references: [id])
+  sentAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([promiseId])
+}
+
+/// Versioned, once-per-payment attribution of verified posted cash to an agent (see METRIC_DICTIONARY.md).
+model PaymentAttribution {
+  id             String       @id @default(cuid())
+  paymentId      String       @unique
+  payment        Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  customerId     String
+  agentUserId    String?
+  interactionId  String?
+  interaction    Interaction? @relation(fields: [interactionId], references: [id])
+  ruleVersion    String
+  amount         Decimal      @db.Decimal(18, 2)
+  reportingDate  DateTime     @db.Date
+  attributedAt   DateTime
+  reversedAt     DateTime?
+  reversalPaymentId String?
+  reason         String?
+
+  @@index([agentUserId, reportingDate])
+  @@index([customerId])
+}
+
+enum RelatedPartyRole {
+  BORROWER
+  CO_BORROWER
+  GUARANTOR
+  CONTACT_PERSON
+}
+
+/// Persons related to a customer with their source and verification; disclosure is never inferred from the relationship.
+model RelatedParty {
+  id               String           @id @default(cuid())
+  customerId       String
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  role             RelatedPartyRole
+  displayName      String
+  relation         String?
+  phoneMasked      String?
+  verification     ContactVerification @default(UNVERIFIED)
+  disclosureAllowed Boolean         @default(false)
+  contactRules     String?
+  sourceSystem     String           @default("CUSTOMER_MASTER_DEMO")
+  sourceAsOf       DateTime
+  createdAt        DateTime         @default(now())
+
+  @@index([customerId])
 }
 
 // ------------------------------------------------------------------
@@ -1564,6 +1668,9 @@ model WorkerHeartbeat {
   startedAt  DateTime @default(now())
   lastSeenAt DateTime
   version    String?
+  /// Provider capabilities reported by the adapter the worker owns (drives which call controls are rendered).
+  capabilitiesJson Json?
+  lastCatchUpAt    DateTime?
 }
 
 enum ProviderEventStatus {
@@ -1641,6 +1748,10 @@ enum ExceptionType {
   SENIOR_CAPACITY_OVERFLOW
   SCREEN_POP_DELAY
   SUPPRESSION_SYNC_FAILURE
+  CALL_STATE_UNKNOWN
+  CALL_CONTROL_FAILURE
+  REMINDER_DELIVERY_FAILURE
+  DECEASED_VERIFICATION
 }
 
 enum ExceptionStatus {

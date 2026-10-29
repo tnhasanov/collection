@@ -3,8 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Field, Input, Select } from "@/components/ui";
 
-export function LoginForm({ next, demoUsers, demo }: { next: string | null; demoUsers: { username: string; label: string }[]; demo: boolean }) {
+export function LoginForm({ next, demoUsers, mode }: { next: string | null; demoUsers: { username: string; label: string }[]; mode: "DEMO" | "PILOT" | "INTEGRATION" }) {
   const router = useRouter();
+  const demo = mode === "DEMO";
   const [username, setUsername] = useState(demo ? "agent.a" : "");
   const [password, setPassword] = useState(demo ? "demo1234" : "");
   const [error, setError] = useState<string | null>(null);
@@ -21,8 +22,13 @@ export function LoginForm({ next, demoUsers, demo }: { next: string | null; demo
       setError(json.error?.message ?? "Sign-in failed");
       return;
     }
-    router.replace(next && next.startsWith("/") ? next : json.data.landing);
+    const target = next && next.startsWith("/") ? next : json.data.landing;
+    router.replace(json.data.mustChangePassword ? `/account/password?next=${encodeURIComponent(target)}` : target);
     router.refresh();
+  }
+
+  if (mode === "INTEGRATION") {
+    return <p className="callout callout-info mt-4">Sign-in is handled by the bank identity provider in INTEGRATION mode. Local passwords are disabled.</p>;
   }
 
   return (
@@ -38,8 +44,9 @@ export function LoginForm({ next, demoUsers, demo }: { next: string | null; demo
           </Select>
         </Field>
       )}
+      {mode === "PILOT" && <p className="text-xs text-muted">Use the individual tester identity you were given. The first sign-in asks you to set a personal password; nothing is shared between testers.</p>}
       <Field label="Username" htmlFor="username" required>
-        <Input id="username" name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+        <Input id="username" name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus={!demo} />
       </Field>
       <Field label="Password" htmlFor="password" required>
         <Input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />

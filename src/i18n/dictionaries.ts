@@ -50,6 +50,7 @@ const en = {
     sourceRefreshed: "Source refreshed",
     signOut: "Sign out",
     demo: "DEMO",
+    pilot: "PILOT · synthetic",
     integration: "INTEGRATION",
   },
   common: {

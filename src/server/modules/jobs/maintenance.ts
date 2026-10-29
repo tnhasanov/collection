@@ -4,8 +4,15 @@ import { maturePromises } from "@/server/modules/promises/promiseService";
 import { appendAudit } from "@/server/modules/audit/audit";
 import { getOutboundControls } from "@/server/modules/settings/settingsService";
 import { renderTemplate, templateText, variablesForCustomer } from "@/server/modules/templates/templateService";
+import { runDailyAging } from "@/server/modules/jobs/aging";
+import { bakuBusinessDate, toDbDate } from "@/server/dates";
 
-/** DEMO mock inbound sync: the core/payment feeds "refresh" every few minutes so freshness stays within threshold. */
+/**
+ * Synthetic inbound sync (DEMO/PILOT): the mock core and payment feeds "refresh" every few minutes so freshness stays
+ * within threshold. Before confirming balances the derivation is re-run for every loan whose Baku business date has
+ * advanced (daily aging), so a confirmed snapshot always reflects today's DPD and arrears; a timestamp is never
+ * refreshed on stale figures. Loans under an operator's stale-balance scenario are left untouched.
+ */
 export async function refreshMockSources(prisma: PrismaClient, now: Date) {
   const sources = ["CORE_BANKING", "PAYMENT_FEED", "CUSTOMER_MASTER"];
   for (const s of sources) {
@@ -13,11 +20,11 @@ export async function refreshMockSources(prisma: PrismaClient, now: Date) {
     if (!w || w.paused || w.health === "DISABLED") continue;
     await prisma.sourceWatermark.update({ where: { sourceSystem: s }, data: { lastSuccessfulRunAt: now, sourceAsOf: new Date(now.getTime() - 60_000), lagSeconds: 60, health: "HEALTHY", errorCount: 0 } });
   }
-  // Balances are re-confirmed by the mock core feed except for loans flagged stale by an operator scenario.
+  const aging = await runDailyAging(prisma, now, { reason: "mock-core-sync aging" });
   const staleScenario = await prisma.exceptionCase.findMany({ where: { type: "STALE_BALANCES", status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, select: { loanId: true } });
   const excluded = staleScenario.map((e) => e.loanId).filter((id): id is string => !!id);
-  await prisma.loan.updateMany({ where: { status: "ACTIVE", id: { notIn: excluded } }, data: { balancesAsOf: now } });
-  return { refreshed: sources.length, excludedLoans: excluded.length };
+  await prisma.loan.updateMany({ where: { status: "ACTIVE", id: { notIn: excluded }, agedForDate: toDbDate(bakuBusinessDate(now)) }, data: { balancesAsOf: now } });
+  return { refreshed: sources.length, excludedLoans: excluded.length, aging };
 }
 
 /** Expire leases on claimed work that was never progressed, and mature promises. */

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/server/db";
 import { getSessionUser } from "@/server/auth/session";
 import { hasPermission } from "@/server/auth/permissions";
-import { canAccessCustomer } from "@/server/auth/access";
+import { customerScope } from "@/server/auth/scope";
+import { now } from "@/server/clock";
 import { searchCustomers } from "@/server/modules/customers/customerService";
 import { Card, EmptyState } from "@/components/ui";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -16,12 +17,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   if (!user) redirect("/login?reason=session");
   if (!hasPermission(user.role, "customer.read")) redirect("/access-denied");
   const { q = "" } = await searchParams;
-  const rows = q ? await searchCustomers(prisma, q, 50) : [];
-  const visible = [];
-  for (const r of rows) if (await canAccessCustomer(prisma, user, r.id)) visible.push(r);
+  const scope = await customerScope(prisma, user, await now());
+  const result = q ? await searchCustomers(prisma, q, { limit: 50, scope }) : { rows: [], hiddenByScope: 0, normalized: null };
+  const visible = result.rows;
+  const rows = { length: result.rows.length + result.hiddenByScope };
   return (
     <>
-      <PageHeader kicker="S04 / customer search" title="Customers" lead="Search by synthetic name, customer id, CIF or loan id. Results are limited to your authorized scope." />
+      <PageHeader kicker="S04 / customer search" title="Customers" lead="Search by name, customer id, CIF, loan id or telephone number (digits only are enough). Results are limited to your authorized scope before paging." />
       <form className="mb-3 flex gap-2" action="/customers">
         <label htmlFor="q" className="sr-only">
           Search

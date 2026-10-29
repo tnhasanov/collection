@@ -1,8 +1,9 @@
 import { DateTime } from "luxon";
 import type { Db } from "@/server/db";
 import { BAKU_ZONE } from "@/server/dates";
-import { dec, money } from "@/server/money";
 import { getOutboundControls, getSetting } from "@/server/modules/settings/settingsService";
+import { attributedCashByAgent } from "@/server/modules/payments/attribution";
+import { readControlState } from "@/server/modules/dialer/contract";
 
 /** Supervisor live view and team grid. Metric definitions match the agent dashboard and METRIC_DICTIONARY.md. */
 export async function liveSupervision(db: Db, now: Date) {
@@ -41,6 +42,8 @@ export async function liveSupervision(db: Db, now: Date) {
       talkSeconds: interaction && interaction.connectedAt ? (interaction.endedAt ? interaction.talkSeconds : Math.round((now.getTime() - interaction.connectedAt.getTime()) / 1000)) : null,
       acwSeconds: interaction?.acwStartedAt && !interaction.savedAt ? Math.round((now.getTime() - interaction.acwStartedAt.getTime()) / 1000) : interaction?.acwSeconds ?? null,
       interactionId: interaction?.id ?? null,
+      interactionStatus: interaction?.status ?? null,
+      callControl: interaction && interaction.status === "OPEN" ? (() => { const c = readControlState(interaction.controlState); return { muted: c.muted, held: c.held, pending: c.pending.map((p) => p.action), lastError: c.lastError, providerState: c.providerState }; })() : null,
       outcomeState,
       operational,
       queue: a.agentProfile?.seniority === "SENIOR" ? "Bucket 10 + 8-9" : "Buckets 7-9",
@@ -99,12 +102,13 @@ export async function liveSupervision(db: Db, now: Date) {
 
 export async function teamGrid(db: Db, now: Date) {
   const live = await liveSupervision(db, now);
-  const start = DateTime.fromJSDate(now, { zone: BAKU_ZONE }).startOf("day").toJSDate();
+  // Today's attributed cash comes from the persisted PaymentAttribution rows (rule ATTRIB-1), the same source as the
+  // agent dashboard and analytics, so a payment is never counted for two agents or twice for one.
+  const attributed = await attributedCashByAgent(db, { from: now, to: now });
   const rows = [];
   for (const a of live.agents) {
-    const payments = await db.payment.findMany({ where: { status: "POSTED", eventAt: { gte: start }, customer: { interactions: { some: { agentUserId: a.userId, isRpc: true, startedAt: { gte: new Date(now.getTime() - 10 * 86400000) } } } } }, select: { amount: true } });
     const backlog = await db.workItem.count({ where: { ownerUserId: a.userId, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] } } });
-    rows.push({ ...a, attributedCash: money(payments.reduce((s, p) => s.plus(p.amount), dec(0))).toFixed(2), backlog });
+    rows.push({ ...a, attributedCash: attributed.get(a.userId) ?? "0.00", backlog });
   }
   return { ...live, agents: rows };
 }

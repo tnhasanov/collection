@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@/server/auth/session";
+import { appMode, getSessionUser, isDemoMode } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
@@ -13,14 +13,15 @@ export const dynamic = "force-dynamic";
 export default async function ShellLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
   if (!user) redirect("/login?reason=session");
-  const mode = process.env.APP_MODE === "DEMO" ? "DEMO" : "INTEGRATION";
+  if (user.mustChangePassword) redirect("/account/password");
+  const mode = appMode();
   const [bd, current, feed, unread, worker, demoUsers] = await Promise.all([
     businessDate(),
     now(),
     prisma.sourceWatermark.findUnique({ where: { sourceSystem: "PAYMENT_FEED" } }),
     prisma.notification.count({ where: { userId: user.id, readAt: null } }),
     prisma.workerHeartbeat.findFirst({ orderBy: { lastSeenAt: "desc" } }),
-    mode === "DEMO" ? prisma.user.findMany({ where: { isActive: true, isServiceAccount: false }, orderBy: { role: "asc" }, select: { username: true, displayName: true, role: true } }) : Promise.resolve([]),
+    isDemoMode() ? prisma.user.findMany({ where: { isActive: true, isServiceAccount: false }, orderBy: { role: "asc" }, select: { username: true, displayName: true, role: true } }) : Promise.resolve([]),
   ]);
   const lagMin = feed?.sourceAsOf ? Math.round((current.getTime() - feed.sourceAsOf.getTime()) / 60_000) : null;
   const freshness = !feed || feed.health === "DISABLED" ? { label: "Source: n/a", tone: "warning" as const } : lagMin !== null && lagMin > (feed.freshnessThresholdSeconds / 60) ? { label: `Source stale (${lagMin} min)`, tone: "danger" as const } : { label: `Source refreshed ${formatBakuTime(feed.sourceAsOf)}`, tone: "success" as const };

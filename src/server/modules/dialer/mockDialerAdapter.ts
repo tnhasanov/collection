@@ -12,6 +12,7 @@ import type {
   WithdrawCommand,
   WrapUpCommand,
 } from "@/server/modules/dialer/contract";
+import { getClockSync } from "@/server/clock";
 
 export const MOCK_PROVIDER = "MOCK_DIALER";
 
@@ -22,11 +23,20 @@ export const MOCK_PROVIDER = "MOCK_DIALER";
  *   - numbers ending in 1,2,3,5,7,8,9: answered and bridged
  *   - ending in 4: no answer; ending in 6: busy; ending in 0: unreachable
  *   - "+9945510000**" alternative numbers: machine/voicemail
- * A ticket whose correlationId contains "fail-wrapup" simulates a provider wrap-up acknowledgment failure.
+ * Test hooks (correlation id substrings): "fail-wrapup" → wrap-up acknowledgment UNKNOWN; "reject-dial" → ticket
+ * REJECTED; "unknown-withdraw" → withdrawal UNKNOWN; "reject-end" → END REJECTED; "unknown-control" → control UNKNOWN.
+ *
+ * Its in-memory view is rebuilt from persisted application facts after a restart (hydrate) and exported for
+ * reconciliation (snapshot), so a worker restart never leaves calls or agents in an unknown state.
  */
 export interface MockScript {
   steps: { delayMs: number; event: NormalizedProviderEvent }[];
   technicalResult: ProviderInteraction["technicalResult"];
+}
+
+export interface MockProviderSnapshot {
+  interactions: ProviderInteraction[];
+  agentStates: ConfirmedAgentState[];
 }
 
 export class MockDialerAdapter implements DialerAdapter {
@@ -35,12 +45,12 @@ export class MockDialerAdapter implements DialerAdapter {
   private interactions = new Map<string, ProviderInteraction>();
   private unknownCommands = new Set<string>();
 
-  constructor(private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly now: () => Date = () => getClockSync().now()) {}
 
   async capabilities(): Promise<DialerCapabilities> {
     return {
       provider: MOCK_PROVIDER,
-      version: "1.0.0-demo",
+      version: "1.1.0-demo",
       mode: "MOCK",
       eventSubscription: true,
       screenPopMetadata: true,
@@ -111,7 +121,7 @@ export class MockDialerAdapter implements DialerAdapter {
       const delay = technicalResult === "NO_ANSWER" ? 14000 : technicalResult === "MACHINE" ? 7000 : 4000;
       steps.push(base("call.ended", delay, { technicalResult, reason: technicalResult }));
     }
-    this.interactions.set(ref, { providerInteractionRef: ref, correlationId: ticket.correlationId, state: "DIALING", technicalResult: null, startedAt: this.now().toISOString(), answeredAt: null, endedAt: null, agentRef: ticket.dialerAgentRef });
+    this.interactions.set(ref, { providerInteractionRef: ref, correlationId: ticket.correlationId, state: "DIALING", technicalResult: null, startedAt: this.now().toISOString(), answeredAt: null, endedAt: null, agentRef: ticket.dialerAgentRef, muted: false, held: false });
     return { steps, technicalResult };
   }
 
@@ -133,11 +143,35 @@ export class MockDialerAdapter implements DialerAdapter {
     return this.receipt(command.idempotencyKey, "CONFIRMED", { providerRef: `mock-withdraw-${command.correlationId}` });
   }
 
+  /** Provider-confirmed call controls: mute/hold flags live on the provider interaction; END ends it. */
   async requestCallControl(command: SupportedCallControl): Promise<CommandReceipt> {
     if (command.action === "TRANSFER") return this.receipt(command.idempotencyKey, "REJECTED", { message: "Transfer is not supported by the mock provider" });
     const call = this.interactions.get(command.providerInteractionRef);
-    if (!call) return this.receipt(command.idempotencyKey, "REJECTED", { message: "Unknown interaction" });
-    if (command.action === "END") this.interactions.set(command.providerInteractionRef, { ...call, state: "ENDED", endedAt: this.now().toISOString(), technicalResult: call.technicalResult ?? "ANSWERED" });
+    if (!call) return this.receipt(command.idempotencyKey, "REJECTED", { message: "Unknown interaction at the provider" });
+    if (command.correlationId.includes("unknown-control")) {
+      this.unknownCommands.add(command.idempotencyKey);
+      return this.receipt(command.idempotencyKey, "UNKNOWN", { message: "Provider did not answer the control request (simulated timeout)" });
+    }
+    if (command.action === "END" && command.correlationId.includes("reject-end")) return this.receipt(command.idempotencyKey, "REJECTED", { message: "Provider refused END (simulated)" });
+    if (call.state === "ENDED") return this.receipt(command.idempotencyKey, "REJECTED", { message: "Call already ended" });
+    if (call.state !== "CONNECTED" && command.action !== "END") return this.receipt(command.idempotencyKey, "REJECTED", { message: `Control ${command.action} requires a connected call (state ${call.state})` });
+    switch (command.action) {
+      case "MUTE":
+        this.interactions.set(command.providerInteractionRef, { ...call, muted: true });
+        break;
+      case "UNMUTE":
+        this.interactions.set(command.providerInteractionRef, { ...call, muted: false });
+        break;
+      case "HOLD":
+        this.interactions.set(command.providerInteractionRef, { ...call, held: true });
+        break;
+      case "RESUME":
+        this.interactions.set(command.providerInteractionRef, { ...call, held: false });
+        break;
+      case "END":
+        this.interactions.set(command.providerInteractionRef, { ...call, state: "ENDED", endedAt: this.now().toISOString(), technicalResult: call.technicalResult ?? "ANSWERED", muted: false, held: false });
+        break;
+    }
     return this.receipt(command.idempotencyKey, "CONFIRMED", { providerRef: `mock-ctl-${command.action}-${command.correlationId}` });
   }
 
@@ -158,15 +192,25 @@ export class MockDialerAdapter implements DialerAdapter {
     return { since, interactions: [...this.interactions.values()], agentStates: [...this.agentStates.values()], unknownCommands: [...this.unknownCommands] };
   }
 
-  /** Test helper: mark a provider interaction as connected/ended (mirrors delivered events). */
+  /** Exports the provider's view (tests, diagnostics). */
+  snapshot(): MockProviderSnapshot {
+    return { interactions: [...this.interactions.values()], agentStates: [...this.agentStates.values()] };
+  }
+
+  /** Rebuilds the provider's view from persisted facts after a restart; existing entries win over hydrated ones. */
+  hydrate(snapshot: MockProviderSnapshot) {
+    for (const i of snapshot.interactions) if (!this.interactions.has(i.providerInteractionRef)) this.interactions.set(i.providerInteractionRef, { muted: false, held: false, ...i });
+    for (const a of snapshot.agentStates) if (!this.agentStates.has(a.agentRef)) this.agentStates.set(a.agentRef, a);
+  }
+
+  /** Mirrors delivered events into the provider's own view (what a reconcile/getAgentState would report after a reconnect). */
   applyEvent(event: NormalizedProviderEvent) {
     const ref = event.providerInteractionRef;
     if (!ref) return;
     const call = this.interactions.get(ref);
     if (!call) return;
-    if (event.eventType === "customer.answered" || event.eventType === "agent.bridged") this.interactions.set(ref, { ...call, state: "CONNECTED", technicalResult: "ANSWERED", answeredAt: event.occurredAt });
-    if (event.eventType === "call.ended") this.interactions.set(ref, { ...call, state: "ENDED", technicalResult: (event.payload.technicalResult as ProviderInteraction["technicalResult"]) ?? call.technicalResult ?? "ANSWERED", endedAt: event.occurredAt });
-    // The provider's own view of the agent follows the call legs (what a reconcile/getAgentState would report after a reconnect).
+    if (event.eventType === "customer.answered" || event.eventType === "agent.bridged") this.interactions.set(ref, { ...call, state: "CONNECTED", technicalResult: "ANSWERED", answeredAt: call.answeredAt ?? event.occurredAt });
+    if (event.eventType === "call.ended") this.interactions.set(ref, { ...call, state: "ENDED", technicalResult: (event.payload.technicalResult as ProviderInteraction["technicalResult"]) ?? call.technicalResult ?? "ANSWERED", endedAt: call.endedAt ?? event.occurredAt, muted: false, held: false });
     const agentRef = event.agentRef ?? call.agentRef;
     if (agentRef) {
       const current = this.agentStates.get(agentRef);
@@ -179,10 +223,11 @@ export class MockDialerAdapter implements DialerAdapter {
 }
 
 let shared: MockDialerAdapter | null = null;
+/** The shared adapter stamps every provider event with the domain clock (demo offset aware), never the host clock. */
 export function getDialerAdapter(): DialerAdapter & MockDialerAdapter {
   if (process.env.CONNECTOR_DIALER && process.env.CONNECTOR_DIALER !== "mock") {
     throw new Error(`Dialer connector '${process.env.CONNECTOR_DIALER}' is not implemented; only the mock provider exists in this build`);
   }
-  if (!shared) shared = new MockDialerAdapter();
+  if (!shared) shared = new MockDialerAdapter(() => getClockSync().now());
   return shared;
 }

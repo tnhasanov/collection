@@ -4,14 +4,25 @@ import { ok, fail, parseBody } from "@/server/http";
 import { requireUser } from "@/server/auth/session";
 import { getOutboundControls, setSetting } from "@/server/modules/settings/settingsService";
 import { appendAudit } from "@/server/modules/audit/audit";
+import { forceEndInteraction } from "@/server/modules/dialer/providerReconciliation";
+import { now } from "@/server/clock";
+import { badRequest } from "@/server/errors";
 
-const schema = z.object({ action: z.enum(["KILL_SWITCH_ON", "KILL_SWITCH_OFF", "PAUSE_CHANNEL", "RESUME_CHANNEL", "PAUSE_CAMPAIGN", "RESUME_CAMPAIGN"]), channel: z.enum(["VOICE", "SMS"]).optional(), campaignCode: z.string().optional(), reason: z.string().min(3).max(300) });
+const schema = z.object({ action: z.enum(["KILL_SWITCH_ON", "KILL_SWITCH_OFF", "PAUSE_CHANNEL", "RESUME_CHANNEL", "PAUSE_CAMPAIGN", "RESUME_CAMPAIGN", "FORCE_END_CALL"]), channel: z.enum(["VOICE", "SMS"]).optional(), campaignCode: z.string().optional(), interactionId: z.string().optional(), reason: z.string().min(3).max(300) });
 
 /** Emergency and campaign controls. Pausing is immediate; resuming uses the approved active policy. Every change is audited. */
 export async function POST(req: Request) {
   try {
     const user = await requireUser("operations.manage");
     const input = await parseBody(req, schema);
+    if (input.action === "FORCE_END_CALL") {
+      // Supervisor exception path for a call the provider did not end (rejected/unknown End, lost worker): the
+      // interaction moves to after-call work with an upper-bound talk time, the agent lands in ACW and the
+      // related CALL_CONTROL_FAILURE / CALL_STATE_UNKNOWN exceptions are resolved. Audited with the reason.
+      if (!input.interactionId) throw badRequest("interactionId is required");
+      const r = await forceEndInteraction(prisma, { interactionId: input.interactionId, actorUserId: user.id, reason: input.reason, now: await now() });
+      return ok(r);
+    }
     const c = await getOutboundControls(prisma);
     switch (input.action) {
       case "KILL_SWITCH_ON": await setSetting(prisma, "outbound.killSwitch", true, user.id); break;

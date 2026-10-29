@@ -4,12 +4,14 @@ import { DateTime } from "luxon";
 import { prisma } from "@/server/db";
 import { getSessionUser } from "@/server/auth/session";
 import { hasPermission } from "@/server/auth/permissions";
+import { byCustomerWhere, customerScope } from "@/server/auth/scope";
 import { now } from "@/server/clock";
 import { BAKU_ZONE, formatBakuDateTime, formatDate } from "@/server/dates";
 import { formatAzn, dec } from "@/server/money";
 import { Badge, Card, Kpi } from "@/components/ui";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { CreatePromiseButton, CancelPromiseButton } from "@/components/promises/PromiseActions";
+import { CreatePromiseButton, CancelPromiseButton, ResendReminderButton } from "@/components/promises/PromiseActions";
+import { remindersForPromises } from "@/server/modules/promises/reminderService";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +26,8 @@ export default async function PromisesPage({ searchParams }: { searchParams: Pro
   const start = DateTime.fromJSDate(t, { zone: BAKU_ZONE }).startOf("day").toJSDate();
   const end = DateTime.fromJSDate(t, { zone: BAKU_ZONE }).endOf("day").toJSDate();
   const monthStart = DateTime.fromJSDate(t, { zone: BAKU_ZONE }).startOf("month").toJSDate();
-  const scoped = hasPermission(user.role, "customer.read.unscoped") ? {} : { OR: [{ ownerUserId: user.id }, { createdByUserId: user.id }] };
+  // One server-side scope for rows, KPIs and the selected promise (applied before pagination; an agent sees only customers in scope).
+  const scoped: Prisma.PromiseWhereInput = byCustomerWhere(await customerScope(prisma, user, t));
   const where: Prisma.PromiseWhereInput = { ...scoped, ...(owner === "me" ? { ownerUserId: user.id } : {}) };
   switch (view) {
     case "due-today": Object.assign(where, { deadline: { gte: start, lte: end }, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"] } }); break;
@@ -45,7 +48,8 @@ export default async function PromisesPage({ searchParams }: { searchParams: Pro
     prisma.promise.count({ where: { ...scoped, status: { in: ["KEPT", "BROKEN", "PARTIALLY_PAID"] }, maturedAt: { gte: monthStart } } }),
     prisma.promise.count({ where: { ...scoped, status: "PENDING_RECONCILIATION" } }),
   ]);
-  const sel = selected ? rows.find((r) => r.id === selected) ?? (await prisma.promise.findUnique({ where: { id: selected }, include: { customer: true, createdBy: { select: { displayName: true } }, paymentLinks: { include: { payment: true } }, events: { orderBy: { at: "asc" } } } })) : null;
+  const sel = selected ? rows.find((r) => r.id === selected) ?? (await prisma.promise.findFirst({ where: { id: selected, ...scoped }, include: { customer: true, createdBy: { select: { displayName: true } }, paymentLinks: { include: { payment: true } }, events: { orderBy: { at: "asc" } } } })) : null;
+  const reminders = sel ? (await remindersForPromises(prisma, [sel.id])).get(sel.id) ?? [] : [];
   const previous = sel ? await prisma.promise.findMany({ where: { customerId: sel.customerId, id: { not: sel.id } }, orderBy: { createdAt: "desc" }, take: 5 }) : [];
   const views = [["active", "Active"], ["due-today", "Due today"], ["upcoming", "Upcoming"], ["kept", "Kept"], ["partial", "Partially paid"], ["broken", "Broken"], ["pending", "Awaiting reconciliation"], ["cancelled", "Cancelled"], ["all", "All"]];
   return (
@@ -116,7 +120,7 @@ export default async function PromisesPage({ searchParams }: { searchParams: Pro
         </div>
       </Card>
       {sel && (
-        <Card className="mt-3" title={`Selected promise / ${sel.customer.displayName}`} subtitle={`Scope: ${sel.scopeDescription ?? sel.coveredLoanIds.join(", ")} · policy ${sel.policyVersionId ?? "—"} · customer confirmed: ${sel.customerConfirmed ? "yes" : "no"}`} actions={<>{["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"].includes(sel.status) && hasPermission(user.role, "promise.write") && <CancelPromiseButton id={sel.id} />}<Link className="btn btn-secondary btn-sm" href={`/customers/${sel.customerId}?tab=promises`}>Open customer</Link></>}>
+        <Card className="mt-3" title={`Selected promise / ${sel.customer.displayName}`} subtitle={`Scope: ${sel.scopeDescription ?? sel.coveredLoanIds.join(", ")} · policy ${sel.policyVersionId ?? "—"} · customer confirmed: ${sel.customerConfirmed ? "yes" : "no"}`} actions={<>{["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"].includes(sel.status) && hasPermission(user.role, "promise.write") && <CancelPromiseButton id={sel.id} />}{["ACTIVE", "PARTIALLY_PAID"].includes(sel.status) && hasPermission(user.role, "reminder.resend") && <ResendReminderButton id={sel.id} />}<Link className="btn btn-secondary btn-sm" href={`/customers/${sel.customerId}?tab=promises`}>Open customer</Link></>}>
           <div className="grid gap-3 md:grid-cols-3 text-sm">
             <div>
               <h3 className="font-bold">Payment attribution</h3>
@@ -130,6 +134,17 @@ export default async function PromisesPage({ searchParams }: { searchParams: Pro
                 </ul>
               )}
               <p className="mt-1 text-xs text-muted">Each verified allocation is credited once; one payment never counts toward two promises.</p>
+              <h3 className="mt-3 font-bold">Reminders</h3>
+              {reminders.length === 0 ? <p className="text-xs text-muted">No reminder scheduled (deadline too close, or reminders cancelled with the promise).</p> : (
+                <ul className="text-xs">
+                  {reminders.map((r) => (
+                    <li key={r.id} className="flex flex-wrap items-center gap-1">
+                      <Badge tone={r.status === "DELIVERED" ? "success" : r.status === "SENT" ? "info" : r.status === "SCHEDULED" ? "neutral" : r.status === "FAILED" ? "danger" : "warning"}>{r.status.toLowerCase()}</Badge>
+                      <span>{r.kind.replace(/_/g, " ").toLowerCase()} · {formatBakuDateTime(r.scheduledFor)}{r.segments ? ` · ${r.segments} segment${r.segments > 1 ? "s" : ""}` : ""}{r.reason ? ` · ${r.reason}` : ""}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div>
               <h3 className="font-bold">Status events</h3>

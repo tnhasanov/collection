@@ -4,8 +4,17 @@ import { BAKU_ZONE, fromDbDate } from "@/server/dates";
 import { dec, money } from "@/server/money";
 import { getAgentContext } from "@/server/modules/dialer/agentSessionService";
 import { getCustomer360 } from "@/server/modules/customers/customerService";
-import { maskNumber } from "@/server/modules/dialer/contract";
+import { maskNumber, readControlState, type DialerCapabilities } from "@/server/modules/dialer/contract";
+import { ATTRIBUTION_RULE_VERSION, attributedCashForAgent } from "@/server/modules/payments/attribution";
 import type { SessionUser } from "@/server/auth/session";
+
+/** Capabilities reported by the adapter the worker owns; conservative defaults (end only) when no worker has reported. */
+export async function providerCapabilities(db: Db): Promise<{ mute: boolean; hold: boolean; transfer: boolean; end: boolean; manualDial: boolean; reported: boolean; provider: string | null }> {
+  const hb = await db.workerHeartbeat.findFirst({ where: { capabilitiesJson: { not: null as never } }, orderBy: { lastSeenAt: "desc" } }).catch(() => null);
+  const caps = hb?.capabilitiesJson as DialerCapabilities | null | undefined;
+  if (!caps) return { mute: false, hold: false, transfer: false, end: true, manualDial: false, reported: false, provider: null };
+  return { ...caps.callControls, reported: true, provider: caps.provider };
+}
 
 /** Today's scoped personal metrics (same definitions as the supervisor view; see METRIC_DICTIONARY.md). */
 export async function agentMetrics(db: Db, userId: string, now: Date) {
@@ -17,15 +26,8 @@ export async function agentMetrics(db: Db, userId: string, now: Date) {
   const dueToday = await db.promise.count({ where: { ownerUserId: userId, deadlineDate: { equals: new Date(DateTime.fromJSDate(now, { zone: BAKU_ZONE }).toISODate() + "T00:00:00.000Z") }, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION"] } } });
   const matured = await db.promise.findMany({ where: { ownerUserId: userId, maturedAt: { not: null }, status: { in: ["KEPT", "BROKEN", "PARTIALLY_PAID"] }, createdAt: { gte: DateTime.fromJSDate(now).minus({ days: 30 }).toJSDate() } } });
   const kept = matured.filter((p) => p.status === "KEPT").length;
-  // Attributed cash (demo rule): verified payment allocations credited once to the agent of the customer's latest verified RPC within 10 days.
-  const myRpcCustomers = await db.interaction.findMany({ where: { agentUserId: userId, isRpc: true, startedAt: { gte: DateTime.fromJSDate(now).minus({ days: 10 }).toJSDate() } }, select: { customerId: true, startedAt: true } });
-  let attributed = dec(0);
-  for (const r of myRpcCustomers) {
-    const later = await db.interaction.findFirst({ where: { customerId: r.customerId, isRpc: true, startedAt: { gt: r.startedAt }, agentUserId: { not: userId } } });
-    if (later) continue;
-    const pays = await db.payment.findMany({ where: { customerId: r.customerId, status: "POSTED", eventAt: { gte: r.startedAt, gte2: undefined } as never } });
-    for (const p of pays) if (p.eventAt >= start) attributed = attributed.plus(p.amount);
-  }
+  // Attributed cash: the versioned once-per-payment attribution rows (see payments/attribution.ts), today's reporting date.
+  const attributedCash = await attributedCashForAgent(db, userId, { from: now, to: now });
   const talk = interactions.filter((i) => i.talkSeconds).map((i) => i.talkSeconds!);
   const acw = interactions.filter((i) => i.acwSeconds).map((i) => i.acwSeconds!);
   const unresolved = await db.interaction.count({ where: { agentUserId: userId, OR: [{ status: "DRAFT" }, { wrapUpStatus: { in: ["PENDING", "FAILED"] } }] } });
@@ -37,7 +39,8 @@ export async function agentMetrics(db: Db, userId: string, now: Date) {
     promises: promises.length,
     promisedAmount: money(promises.reduce((s, p) => s.plus(p.amount), dec(0))).toFixed(2),
     promisesDueToday: dueToday,
-    attributedCash: money(attributed).toFixed(2),
+    attributedCash,
+    attributionRule: ATTRIBUTION_RULE_VERSION,
     keptRate: matured.length ? kept / matured.length : null,
     keptNumerator: kept,
     keptDenominator: matured.length,
@@ -71,6 +74,7 @@ export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, 
   const attempt = ctx.reservation?.dialAttempts?.[0] ?? null;
   const contact = ctx.reservation ? await db.contactPoint.findUnique({ where: { id: ctx.reservation.contactPointId } }) : null;
   const notifications = await db.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: "desc" }, take: 10 });
+  const caps = await providerCapabilities(db);
   const base = {
     serverNow: now,
     session: ctx.session
@@ -80,12 +84,12 @@ export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, 
       ? { id: ctx.reservation.id, correlationId: ctx.reservation.correlationId, status: ctx.reservation.status, customerId: ctx.reservation.customerId, caseId: ctx.reservation.caseId, campaignCode: ctx.reservation.campaignCode, createdAt: ctx.reservation.createdAt, isManual: ctx.reservation.isManual, maskedNumber: contact ? maskNumber(contact.value) : null, withdrawalStatus: ctx.reservation.withdrawalStatus, attempt: attempt ? { startedAt: attempt.startedAt, ringingAt: attempt.ringingAt, answeredAt: attempt.answeredAt, bridgedAt: attempt.bridgedAt, endedAt: attempt.endedAt, technicalResult: attempt.technicalResult } : null }
       : null,
     interaction: ctx.interaction
-      ? { id: ctx.interaction.id, status: ctx.interaction.status, correlationId: ctx.interaction.correlationId, customerId: ctx.interaction.customerId, startedAt: ctx.interaction.startedAt, connectedAt: ctx.interaction.connectedAt, endedAt: ctx.interaction.endedAt, acwStartedAt: ctx.interaction.acwStartedAt, talkSeconds: ctx.interaction.talkSeconds, ringSeconds: ctx.interaction.ringSeconds, technicalResult: ctx.interaction.technicalResult, wrapUpStatus: ctx.interaction.wrapUpStatus, draft: ctx.interaction.draftJson, draftSavedAt: ctx.interaction.draftSavedAt, scriptVersionId: ctx.interaction.scriptVersionId, identityStatus: ctx.interaction.identityStatus, businessOutcome: ctx.interaction.businessOutcome, savedAt: ctx.interaction.savedAt, providerInteractionRef: ctx.interaction.providerInteractionRef }
+      ? { id: ctx.interaction.id, status: ctx.interaction.status, correlationId: ctx.interaction.correlationId, customerId: ctx.interaction.customerId, startedAt: ctx.interaction.startedAt, connectedAt: ctx.interaction.connectedAt, endedAt: ctx.interaction.endedAt, acwStartedAt: ctx.interaction.acwStartedAt, talkSeconds: ctx.interaction.talkSeconds, ringSeconds: ctx.interaction.ringSeconds, technicalResult: ctx.interaction.technicalResult, wrapUpStatus: ctx.interaction.wrapUpStatus, draft: ctx.interaction.draftJson, draftSavedAt: ctx.interaction.draftSavedAt, scriptVersionId: ctx.interaction.scriptVersionId, identityStatus: ctx.interaction.identityStatus, businessOutcome: ctx.interaction.businessOutcome, savedAt: ctx.interaction.savedAt, providerInteractionRef: ctx.interaction.providerInteractionRef, controlState: readControlState(ctx.interaction.controlState) }
       : null,
     customer,
     script: script ? { id: script.id, code: script.code, version: script.version, language: script.language, title: script.title, body: script.body as { steps: { key: string; title: string; text: string; requires: string }[]; thirdParty: string; branches: { response: string; route: string }[] } } : null,
     notifications: notifications.map((n) => ({ id: n.id, kind: n.kind, message: n.message, createdAt: n.createdAt })),
-    capabilities: { mute: true, hold: true, transfer: false, end: true, manualDial: !!user.seniority && user.seniority === "SENIOR" },
+    capabilities: { ...caps, manualDial: caps.manualDial && !!user.seniority && user.seniority === "SENIOR" },
   };
   if (!opts.full) return base;
   const [metrics, panels] = await Promise.all([agentMetrics(db, user.id, now), agentPanels(db, user.id, now)]);

@@ -1,4 +1,6 @@
 import type { Db } from "@/server/db";
+import type { Prisma } from "@/generated/prisma/client";
+import { customerWhere, type CustomerScope } from "@/server/auth/scope";
 import { dec, money, formatAzn } from "@/server/money";
 import { fromDbDate } from "@/server/dates";
 import { regularPayment } from "@/server/modules/finance/annuity";
@@ -153,14 +155,56 @@ export async function getCustomer360(db: Db, customerId: string, opts: { now: Da
   };
 }
 
-export async function searchCustomers(db: Db, q: string, limit = 20) {
+/** Normalizes a telephone search term to digits (international prefix 00 → +, leading 0 dropped) for matching stored E.164 values. */
+export function normalizePhoneTerm(term: string): string | null {
+  const digits = term.replace(/[^\d+]/g, "");
+  if (!/^\+?\d{5,15}$/.test(digits)) return null;
+  let d = digits.replace(/^\+/, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("0") && d.length <= 10) d = `994${d.slice(1)}`;
+  return d;
+}
+
+export interface SearchResult {
+  rows: { id: string; cif: string; displayName: string; branch: string; maxDpd: number; totalOverdue: string; loans: number; matchedBy: "NAME_OR_ID" | "CIF" | "LOAN" | "PHONE" }[];
+  hiddenByScope: number;
+  normalized: { phone: string | null } | null;
+}
+
+/**
+ * Scoped customer search by name, customer id, CIF, loan id or telephone number. The authorization scope is part of
+ * the query (not a post-filter), so paging never leaks rows; the count of matches hidden by scope is reported.
+ * A shared telephone number is a lookup aid only, never proof of identity.
+ */
+export async function searchCustomers(db: Db, q: string, opts: { limit?: number; scope?: CustomerScope } = {}): Promise<SearchResult> {
+  const limit = opts.limit ?? 20;
   const term = q.trim();
-  if (!term) return [];
-  const loan = await db.loan.findFirst({ where: { OR: [{ id: term }, { coreLoanId: term }] } });
-  const customers = await db.customer.findMany({
-    where: { OR: [{ id: { contains: term, mode: "insensitive" } }, { cif: { contains: term, mode: "insensitive" } }, { displayName: { contains: term, mode: "insensitive" } }, ...(loan ? [{ id: loan.customerId }] : [])] },
-    take: limit,
-    include: { loans: { select: { id: true, dpd: true, totalOverdue: true } } },
-  });
-  return customers.map((c) => ({ id: c.id, cif: c.cif, displayName: c.displayName, branch: c.branch, maxDpd: c.loans.reduce((m, l) => Math.max(m, l.dpd), 0), totalOverdue: c.loans.reduce((s, l) => s.plus(l.totalOverdue), dec(0)).toFixed(2), loans: c.loans.length }));
+  if (!term) return { rows: [], hiddenByScope: 0, normalized: null };
+  const phone = normalizePhoneTerm(term);
+  const loan = await db.loan.findFirst({ where: { OR: [{ id: term }, { coreLoanId: term }] }, select: { customerId: true } });
+  const phoneCustomers = phone ? await db.contactPoint.findMany({ where: { type: { in: ["MOBILE", "LANDLINE"] }, value: { contains: phone.slice(-9) } }, select: { customerId: true }, take: 50 }) : [];
+  const or: Prisma.CustomerWhereInput[] = [
+    { id: { contains: term, mode: "insensitive" } },
+    { cif: { contains: term, mode: "insensitive" } },
+    { displayName: { contains: term, mode: "insensitive" } },
+    ...(loan ? [{ id: loan.customerId }] : []),
+    ...(phoneCustomers.length ? [{ id: { in: [...new Set(phoneCustomers.map((p) => p.customerId))] } }] : []),
+  ];
+  const match: Prisma.CustomerWhereInput = { OR: or };
+  const scopeWhere = opts.scope ? customerWhere(opts.scope) : {};
+  const [customers, total] = await Promise.all([
+    db.customer.findMany({ where: { AND: [match, scopeWhere] }, take: limit, orderBy: { displayName: "asc" }, include: { loans: { select: { id: true, dpd: true, totalOverdue: true } } } }),
+    opts.scope ? db.customer.count({ where: match }) : Promise.resolve(0),
+  ]);
+  const rows = customers.map((c) => ({
+    id: c.id,
+    cif: c.cif,
+    displayName: c.displayName,
+    branch: c.branch,
+    maxDpd: c.loans.reduce((m, l) => Math.max(m, l.dpd), 0),
+    totalOverdue: c.loans.reduce((s, l) => s.plus(l.totalOverdue), dec(0)).toFixed(2),
+    loans: c.loans.length,
+    matchedBy: (loan && loan.customerId === c.id ? "LOAN" : phoneCustomers.some((p) => p.customerId === c.id) ? "PHONE" : c.cif.toLowerCase().includes(term.toLowerCase()) ? "CIF" : "NAME_OR_ID") as SearchResult["rows"][number]["matchedBy"],
+  }));
+  return { rows, hiddenByScope: opts.scope ? Math.max(0, total - rows.length) : 0, normalized: { phone } };
 }

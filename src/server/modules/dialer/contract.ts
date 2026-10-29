@@ -105,6 +105,29 @@ export interface ProviderInteraction {
   answeredAt: string | null;
   endedAt: string | null;
   agentRef: string | null;
+  /** Provider-confirmed call-control flags (undefined when the provider does not report them). */
+  muted?: boolean;
+  held?: boolean;
+}
+
+/** Application-side view of provider-confirmed call controls, stored on the interaction and shown to the agent. */
+export interface CallControlState {
+  muted: boolean;
+  held: boolean;
+  pending: { action: CallControlAction; key: string; requestedAt: string }[];
+  lastError: string | null;
+  lastErrorAt: string | null;
+  endRequestedAt: string | null;
+  providerState: ProviderInteraction["state"] | null;
+  updatedAt: string | null;
+}
+
+export const EMPTY_CONTROL_STATE: CallControlState = { muted: false, held: false, pending: [], lastError: null, lastErrorAt: null, endRequestedAt: null, providerState: null, updatedAt: null };
+
+export function readControlState(value: unknown): CallControlState {
+  if (!value || typeof value !== "object") return { ...EMPTY_CONTROL_STATE, pending: [] };
+  const v = value as Partial<CallControlState>;
+  return { ...EMPTY_CONTROL_STATE, ...v, pending: Array.isArray(v.pending) ? v.pending : [] };
 }
 
 export interface ReconciliationResult {

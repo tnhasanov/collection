@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = ["/login", "/api/auth/login", "/brand", "/_next", "/favicon.ico"];
+const PUBLIC = ["/login", "/api/auth/login", "/api/health", "/brand", "/_next", "/favicon.ico", "/fonts"];
 
 /** Lightweight gate: unauthenticated shell requests go to /login. Real authorization happens on the server per page/route. */
 export function proxy(req: NextRequest) {

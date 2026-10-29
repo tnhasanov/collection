@@ -6,7 +6,7 @@ import { now } from "@/server/clock";
 import { Badge, Callout, Card, LinkButton } from "@/components/ui";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fmtAzn, fmtDateTime } from "@/lib/format";
-import { analyticsTab, ANALYTICS_TABS, type AnalyticsTab } from "@/server/modules/analytics/analyticsService";
+import { analyticsTab, ANALYTICS_TABS, applyBranchScope, type AnalyticsTab } from "@/server/modules/analytics/analyticsService";
 import { AnalyticsFilters } from "@/components/analytics/AnalyticsFilters";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const tab = (ANALYTICS_TABS.some((t) => t.key === sp.tab) ? sp.tab : "dpd") as AnalyticsTab;
   const filters = { from: sp.from, to: sp.to, branch: sp.branch || undefined, segment: sp.segment || undefined, riskClass: sp.riskClass ? Number(sp.riskClass) : undefined, bucket: sp.bucket ? Number(sp.bucket) : undefined, owner: sp.owner || undefined, strategyVersionId: sp.strategyVersionId || undefined, arm: sp.arm || undefined };
   const t = await now();
-  const result = await analyticsTab(prisma, tab, filters, t);
+  const result = await analyticsTab(prisma, tab, applyBranchScope(user, filters), t);
   const [branches, owners, strategies] = await Promise.all([
     prisma.customer.findMany({ distinct: ["branch"], select: { branch: true }, orderBy: { branch: "asc" } }),
     prisma.user.findMany({ where: { role: { in: ["AGENT", "SENIOR_AGENT", "TEAM_LEAD"] } }, select: { id: true, displayName: true }, orderBy: { displayName: "asc" } }),

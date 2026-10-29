@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 import { prisma } from "@/server/db";
-import { getSessionUser } from "@/server/auth/session";
+import { getSessionUser, isSyntheticMode } from "@/server/auth/session";
 import { hasPermission } from "@/server/auth/permissions";
+import { byCustomerWhere, customerScope, scopeIsUnscoped } from "@/server/auth/scope";
 import { now } from "@/server/clock";
 import { BAKU_ZONE, formatBakuDateTime, formatDate } from "@/server/dates";
 import { formatAzn, dec } from "@/server/money";
@@ -23,21 +24,26 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   const { tab = "posted", selected } = await searchParams;
   const t = await now();
   const start = DateTime.fromJSDate(t, { zone: BAKU_ZONE }).startOf("day").toJSDate();
-  const where: Prisma.PaymentWhereInput = tab === "posted" ? { status: "POSTED" } : tab === "unmatched" ? { status: { in: ["QUARANTINED", "UNMATCHED"] } } : tab === "pending" ? { status: "PENDING" } : tab === "reversals" ? { OR: [{ status: "REVERSED" }, { reversalOfId: { not: null } }] } : { id: "none" };
+  // One authorization scope for rows, aggregates and exception lists, applied inside the queries before the limit.
+  const scope = await customerScope(prisma, user, t);
+  const scoped = byCustomerWhere(scope);
+  const unscopedRole = scopeIsUnscoped(scope);
+  const tabWhere: Prisma.PaymentWhereInput = tab === "posted" ? { status: "POSTED" } : tab === "unmatched" ? { status: { in: ["QUARANTINED", "UNMATCHED"] } } : tab === "pending" ? { status: "PENDING" } : tab === "reversals" ? { OR: [{ status: "REVERSED" }, { reversalOfId: { not: null } }] } : { id: "none" };
+  // Quarantined payments have no customer; only unscoped roles see them.
+  const where: Prisma.PaymentWhereInput = unscopedRole ? { ...tabWhere, ...scoped } : { AND: [tabWhere, { customerId: { in: scope.customerIds } }] };
   const [rows, verifiedToday, unmatched, feed, dupes, discrepancies] = await Promise.all([
     tab === "discrepancies" || tab === "simulator" ? Promise.resolve([]) : prisma.payment.findMany({ where, include: { customer: { select: { displayName: true } }, allocations: { include: { installment: { select: { seq: true } } } }, promiseLinks: true, reversalOf: true }, orderBy: { eventAt: "desc" }, take: 150 }),
-    prisma.payment.findMany({ where: { eventAt: { gte: start }, status: { in: ["POSTED", "REVERSED"] } }, select: { amount: true, status: true, reversalOfId: true } }),
-    prisma.payment.count({ where: { status: { in: ["QUARANTINED", "UNMATCHED"] } } }),
+    prisma.payment.findMany({ where: { ...(unscopedRole ? scoped : { customerId: { in: scope.customerIds } }), eventAt: { gte: start }, status: { in: ["POSTED", "REVERSED"] } }, select: { amount: true, status: true, reversalOfId: true } }),
+    unscopedRole ? prisma.payment.count({ where: { ...scoped, status: { in: ["QUARANTINED", "UNMATCHED"] } } }) : Promise.resolve(0),
     prisma.sourceWatermark.findUnique({ where: { sourceSystem: "PAYMENT_FEED" } }),
     prisma.integrationEvent.count({ where: { status: "DUPLICATE" } }),
-    prisma.exceptionCase.findMany({ where: { type: { in: ["SOURCE_MISMATCH", "SCHEDULE_MISMATCH", "REVERSED_PAYMENT", "UNMATCHED_PAYMENT", "CLAIMED_ALREADY_PAID"] }, status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, include: { customer: { select: { displayName: true } } }, orderBy: { lastSeenAt: "desc" }, take: 100 }),
+    prisma.exceptionCase.findMany({ where: { ...(unscopedRole ? scoped : { customerId: { in: scope.customerIds } }), type: { in: ["SOURCE_MISMATCH", "SCHEDULE_MISMATCH", "REVERSED_PAYMENT", "UNMATCHED_PAYMENT", "CLAIMED_ALREADY_PAID"] }, status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, include: { customer: { select: { displayName: true } } }, orderBy: { lastSeenAt: "desc" }, take: 100 }),
   ]);
   const net = verifiedToday.reduce((s, p) => (p.status === "POSTED" ? s.plus(p.amount) : p.reversalOfId ? s.plus(p.amount) : s), dec(0));
   const lagMin = feed?.sourceAsOf ? Math.round((t.getTime() - feed.sourceAsOf.getTime()) / 60000) : null;
   const dupAudit = await prisma.auditEvent.count({ where: { action: "integration.event.duplicate" } });
   const sel = selected ? rows.find((r) => r.id === selected) : null;
-  const loans = tab === "simulator" ? await prisma.loan.findMany({ where: { status: "ACTIVE", totalOverdue: { gt: 0 } }, select: { id: true, coreLoanId: true, customerId: true, totalOverdue: true, customer: { select: { displayName: true } } }, orderBy: { dpd: "desc" }, take: 60 }) : [];
-  const recentTxns = tab === "simulator" ? await prisma.payment.findMany({ where: { status: "POSTED", sourceSystem: "CORE_DEMO" }, orderBy: { eventAt: "desc" }, take: 15, select: { sourceTransactionId: true, amount: true, loanRef: true } }) : [];
+  const simulatorAllowed = hasPermission(user.role, "payment.simulate") && isSyntheticMode();
   return (
     <>
       <PageHeader kicker="S09 / payments & reconciliation" title="Payments & reconciliation" lead="Verified core events drive balances, promises and task cancellation. A payment claim is not a posting. Manual correction creates a reviewed reconciliation decision, never a fabricated core posting." />
@@ -55,10 +61,10 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
       {tab === "simulator" ? (
-        hasPermission(user.role, "payment.simulate") && process.env.APP_MODE === "DEMO" ? (
-          <PaymentSimulator loans={loans.map((l) => ({ id: l.id, coreLoanId: l.coreLoanId, customerId: l.customerId, customerName: l.customer.displayName, totalOverdue: l.totalOverdue.toString() }))} recent={recentTxns.map((r) => ({ id: r.sourceTransactionId, amount: r.amount.toString(), loanRef: r.loanRef }))} today={DateTime.fromJSDate(t, { zone: BAKU_ZONE }).toISODate()!} />
+        simulatorAllowed ? (
+          <PaymentSimulator today={DateTime.fromJSDate(t, { zone: BAKU_ZONE }).toISODate()!} />
         ) : (
-          <Card className="mt-2"><p className="text-sm text-muted">The payment simulator is available only in DEMO mode to roles with the payment.simulate permission (integration operator, admin).</p></Card>
+          <Card className="mt-2"><p className="text-sm text-muted">The payment simulator is available only in synthetic environments (DEMO or PILOT mode) to roles with the payment.simulate permission (integration operator, admin).</p></Card>
         )
       ) : tab === "discrepancies" ? (
         <Card className="mt-2" padded={false}>

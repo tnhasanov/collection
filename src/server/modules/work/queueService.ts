@@ -1,8 +1,9 @@
 import type { Db } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import type { SessionUser } from "@/server/auth/session";
-import { hasPermission } from "@/server/auth/permissions";
+import { byCustomerWhere, customerScope, scopeIsUnscoped, type CustomerScope } from "@/server/auth/scope";
 import { fromDbDate } from "@/server/dates";
+import { now as domainNow } from "@/server/clock";
 
 export interface QueueFilters {
   queue: "mine" | "all" | "senior" | "callbacks" | "blocked" | "manual" | "later";
@@ -16,13 +17,19 @@ export interface QueueFilters {
   pageSize: number;
 }
 
-export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters) {
-  const where: Prisma.WorkItemWhereInput = { status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] } };
+/**
+ * Work-queue listing. The caller's customer scope is applied to every view BEFORE pagination, so a scoped agent only
+ * sees items for customers they may open (owned/claimed work, live reservations, recent own interactions). Pooled work
+ * reaches an agent through dialer allocation or the atomic "Get next customer" claim, never by browsing.
+ */
+export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters, scope?: CustomerScope) {
+  scope ??= await customerScope(db, user, await domainNow());
+  const where: Prisma.WorkItemWhereInput = { status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...byCustomerWhere(scope) };
   const voice: Prisma.WorkItemWhereInput = { type: { in: ["CALL", "CALLBACK"] } };
   switch (f.queue) {
     case "mine":
-      Object.assign(where, voice, hasPermission(user.role, "customer.read.unscoped") ? {} : { OR: [{ ownerUserId: user.id }, { claimedByUserId: user.id }] });
-      if (user.seniority !== "SENIOR" && !hasPermission(user.role, "customer.read.unscoped")) where.requiredSkill = { not: "SENIOR" };
+      Object.assign(where, voice, scopeIsUnscoped(scope) ? {} : { OR: [{ ownerUserId: user.id }, { claimedByUserId: user.id }] });
+      if (user.seniority !== "SENIOR" && !scopeIsUnscoped(scope)) where.requiredSkill = { not: "SENIOR" };
       break;
     case "senior":
       Object.assign(where, voice, { requiredSkill: "SENIOR" });
@@ -44,8 +51,7 @@ export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters) 
   }
   if (f.eligibility) where.status = f.eligibility;
   if (f.language) where.language = f.language as never;
-  if (user.branchScopes.length) where.customer = { branch: { in: user.branchScopes } };
-  if (f.branch) where.customer = { ...(where.customer as object), branch: f.branch };
+  if (f.branch) where.customer = { ...(where.customer as object), branch: scope.kind === "BRANCHES" && !scope.branches.includes(f.branch) ? { in: [] } : f.branch };
   if (f.bucket) where.decisionSnapshot = { ...(where.decisionSnapshot as object), actionBucket: Number(f.bucket) };
   if (f.riskClass) where.decisionSnapshot = { ...(where.decisionSnapshot as object), riskClass: Number(f.riskClass) };
   if (f.band) where.decisionSnapshot = { ...(where.decisionSnapshot as object), segment: f.band as never };
@@ -103,14 +109,18 @@ export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters) 
   };
 }
 
-export async function queueHeader(db: Db, user: SessionUser) {
-  const mine = hasPermission(user.role, "customer.read.unscoped") ? {} : { OR: [{ ownerUserId: user.id }, { claimedByUserId: user.id }] };
+/** Header KPIs use the same scope as the list (aggregates never leak rows the user could not open). */
+export async function queueHeader(db: Db, user: SessionUser, scope?: CustomerScope, now?: Date) {
+  now ??= await domainNow();
+  scope ??= await customerScope(db, user, now);
+  const inScope = byCustomerWhere(scope);
+  const mine = scopeIsUnscoped(scope) ? {} : { OR: [{ ownerUserId: user.id }, { claimedByUserId: user.id }] };
   const [assigned, eligible, callbacksDue, senior, blocked, lastRun, policy, sessions] = await Promise.all([
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...mine } }),
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "ELIGIBLE" } }),
-    db.workItem.count({ where: { type: "CALLBACK", status: { in: ["ELIGIBLE", "DEFERRED"] }, dueAt: { lte: new Date(Date.now() + 86_400_000) } } }),
-    db.workItem.count({ where: { type: "CALL", status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] }, requiredSkill: "SENIOR" } }),
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "DEFERRED" } }),
+    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...inScope, ...mine } }),
+    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "ELIGIBLE", ...inScope } }),
+    db.workItem.count({ where: { type: "CALLBACK", status: { in: ["ELIGIBLE", "DEFERRED"] }, dueAt: { lte: new Date(now.getTime() + 86_400_000) }, ...inScope } }),
+    db.workItem.count({ where: { type: "CALL", status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] }, requiredSkill: "SENIOR", ...inScope } }),
+    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "DEFERRED", ...inScope } }),
     db.decisionRun.findFirst({ orderBy: { startedAt: "desc" } }),
     db.contactPolicyVersion.findFirst({ where: { status: "ACTIVE" } }),
     db.agentSession.count({ where: { isActive: true, confirmedState: { in: ["READY", "RESERVED", "DIALING", "TALKING", "ACW"] } } }),

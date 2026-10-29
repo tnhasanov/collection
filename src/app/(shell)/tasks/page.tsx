@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { prisma } from "@/server/db";
 import { getSessionUser } from "@/server/auth/session";
 import { hasPermission } from "@/server/auth/permissions";
+import { byCustomerWhere, customerScope } from "@/server/auth/scope";
 import { now } from "@/server/clock";
 import { BAKU_ZONE, formatBakuDateTime, formatBakuTime } from "@/server/dates";
 import { Badge, Card } from "@/components/ui";
@@ -26,7 +27,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const rangeEnd = view === "day" ? dayStart.endOf("day") : view === "week" ? dayStart.plus({ days: 7 }) : null;
   const where: Prisma.WorkItemWhereInput = { type: { in: type ? [type as (typeof TASK_TYPES)[number]] : [...TASK_TYPES] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] } };
   if (owner === "me") where.ownerUserId = user.id;
-  if (!hasPermission(user.role, "customer.read.unscoped")) where.OR = [{ ownerUserId: user.id }, { claimedByUserId: user.id }];
+  Object.assign(where, byCustomerWhere(await customerScope(prisma, user, t)));
   if (rangeEnd) where.dueAt = { gte: view === "day" ? dayStart.toJSDate() : dayStart.toJSDate(), lte: rangeEnd.toJSDate() };
   const items = await prisma.workItem.findMany({ where, include: { customer: true, owner: { select: { displayName: true, id: true } } }, orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }], take: 300 });
   const agents = await prisma.user.findMany({ where: { isActive: true, role: { in: ["AGENT", "SENIOR_AGENT", "TEAM_LEAD"] } }, select: { id: true, displayName: true } });

@@ -22,12 +22,37 @@ export interface SessionUser {
   seniority: Seniority | null;
   extension: string | null;
   providerAgentRef: string | null;
+  mustChangePassword: boolean;
   sessionId: string;
   sessionExpiresAt: Date;
 }
 
+/**
+ * Application modes:
+ *  - DEMO: public shared demo identities, role switching, synthetic data, mock adapters.
+ *  - PILOT: individual tester identities only (no shared credentials, no role switching), synthetic data,
+ *    mock adapters; the payment simulator stays available to authorized roles.
+ *  - INTEGRATION: bank identity provider and real adapters (not implemented in this build).
+ */
+export type AppMode = "DEMO" | "PILOT" | "INTEGRATION";
+
+export function appMode(): AppMode {
+  const m = process.env.APP_MODE;
+  return m === "PILOT" ? "PILOT" : m === "INTEGRATION" ? "INTEGRATION" : "DEMO";
+}
+
 export function isDemoMode(): boolean {
-  return process.env.APP_MODE === "DEMO";
+  return appMode() === "DEMO";
+}
+
+/** Synthetic environments (DEMO and PILOT): seeded data, mock providers, simulator allowed. */
+export function isSyntheticMode(): boolean {
+  return appMode() !== "INTEGRATION";
+}
+
+/** Local password sign-in is available in DEMO and PILOT; INTEGRATION uses the bank identity provider. */
+export function localSignInEnabled(): boolean {
+  return appMode() !== "INTEGRATION";
 }
 
 export async function createSession(userId: string, meta: { userAgent?: string; ip?: string } = {}) {
@@ -62,6 +87,7 @@ export async function loadSessionUser(token: string | undefined | null): Promise
     seniority: u.agentProfile?.seniority ?? null,
     extension: u.agentProfile?.extension ?? null,
     providerAgentRef: u.agentProfile?.providerAgentRef ?? null,
+    mustChangePassword: u.mustChangePassword,
     sessionId: session.id,
     sessionExpiresAt: session.expiresAt,
   };

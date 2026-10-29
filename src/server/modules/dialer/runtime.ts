@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { Db } from "@/server/db";
-import type { DialerAdapter, NormalizedProviderEvent } from "@/server/modules/dialer/contract";
+import { readControlState, type DialerAdapter, type NormalizedProviderEvent } from "@/server/modules/dialer/contract";
 import { MOCK_PROVIDER } from "@/server/modules/dialer/mockDialerAdapter";
 import { applyConfirmedState } from "@/server/modules/dialer/agentSessionService";
 import { ingestProviderEvent } from "@/server/modules/dialer/providerEventService";
@@ -118,15 +118,41 @@ export async function handleDialerOutbox(prisma: PrismaClient, adapter: DialerAd
     case "dialer.callControl": {
       const action = String(payload.action) as "MUTE" | "UNMUTE" | "HOLD" | "RESUME" | "TRANSFER" | "END";
       const interaction = await prisma.interaction.findUnique({ where: { id: String(payload.interactionId) }, include: { reservation: true } });
-      if (!interaction || !interaction.providerInteractionRef) return { done: true, note: "No provider interaction" };
+      if (!interaction) return { done: true, note: "Interaction gone" };
+      const state = readControlState(interaction.controlState);
+      const pendingLeft = state.pending.filter((p) => p.key !== message.idempotencyKey);
+      if (!interaction.providerInteractionRef) {
+        await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: { ...state, pending: pendingLeft, lastError: `No provider interaction reference for ${action}`, lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
+        return { done: true, note: "No provider interaction" };
+      }
       const receipt = await adapter.requestCallControl({ idempotencyKey: message.idempotencyKey, correlationId: interaction.correlationId, providerInteractionRef: interaction.providerInteractionRef, action, agentRef: String(payload.agentRef) });
       await recordReceipt(prisma, `callControl.${action}`, message.idempotencyKey, payload, receipt, interaction.correlationId, now);
-      if (receipt.status === "CONFIRMED" && action === "END") {
-        // The provider reports the end of the call as an event; the mock synthesizes it here.
-        const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${interaction.providerInteractionRef}:call.ended`, eventType: "call.ended", occurredAt: now.toISOString(), agentRef: String(payload.agentRef), providerInteractionRef: interaction.providerInteractionRef, correlationId: interaction.correlationId, payload: { technicalResult: "ANSWERED", endedBy: "AGENT" } };
-        await scheduleEvents([{ delayMs: 0, event: ev }]);
+      // Confirmed / rejected / unknown are three different truths for the agent and the supervisor.
+      if (receipt.status === "CONFIRMED") {
+        const provider = await adapter.getInteraction(interaction.providerInteractionRef);
+        const next = { ...state, pending: pendingLeft, muted: action === "MUTE" ? true : action === "UNMUTE" ? false : (provider.muted ?? state.muted), held: action === "HOLD" ? true : action === "RESUME" ? false : (provider.held ?? state.held), lastError: null, lastErrorAt: null, providerState: provider.state, updatedAt: now.toISOString() };
+        await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: next as never } });
+        if (action === "END") {
+          // The provider reports the end of the call as an event; the mock synthesizes it here.
+          const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${interaction.providerInteractionRef}:call.ended`, eventType: "call.ended", occurredAt: now.toISOString(), agentRef: String(payload.agentRef), providerInteractionRef: interaction.providerInteractionRef, correlationId: interaction.correlationId, payload: { technicalResult: "ANSWERED", endedBy: "AGENT" } };
+          await scheduleEvents([{ delayMs: 0, event: ev }]);
+        }
+        return { done: true, note: receipt.status };
       }
-      return { done: true, note: receipt.status };
+      const detail = `${action} ${receipt.status.toLowerCase()} by the provider${receipt.message ? `: ${receipt.message}` : ""}`;
+      await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: { ...state, pending: pendingLeft, lastError: detail, lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
+      if (action === "END" && interaction.status === "OPEN") {
+        // A refused or unanswered END leaves the call open at the provider: the agent sees a durable error and the
+        // supervisor owns an exception; the reconciliation job resolves it against provider state or by force-end.
+        await prisma.exceptionCase.upsert({
+          where: { dedupKey: `CALL_CONTROL_FAILURE:${interaction.id}` },
+          create: { dedupKey: `CALL_CONTROL_FAILURE:${interaction.id}`, type: "CALL_CONTROL_FAILURE", severity: "CRITICAL", customerId: interaction.customerId, caseId: interaction.caseId, title: `Provider ${receipt.status === "REJECTED" ? "rejected" : "did not answer"} END for an open call; agent cannot wrap up until reconciled`, evidence: { interactionId: interaction.id, correlationId: interaction.correlationId, receipt, agentUserId: interaction.agentUserId } as never },
+          update: { lastSeenAt: now, occurrences: { increment: 1 }, status: "OPEN" },
+        });
+        await appendAudit(prisma, { actorService: "cti-adapter", action: "call.control.end_failed", objectType: "Interaction", objectId: interaction.id, customerId: interaction.customerId, correlationId: interaction.correlationId, blocked: true, changes: { receipt } });
+      }
+      // UNKNOWN controls are retried by the outbox with backoff (same idempotency key) until dead-lettered; REJECTED is final.
+      return receipt.status === "UNKNOWN" ? { done: false, note: detail } : { done: true, note: detail };
     }
     case "agent.notify": {
       const agentUserId = String(payload.agentUserId);
@@ -134,11 +160,14 @@ export async function handleDialerOutbox(prisma: PrismaClient, adapter: DialerAd
       return { done: true };
     }
     case "sms.send": {
-      // DEMO: local outbound log only. The policy was re-checked at dispatch time by the campaign job.
+      // Synthetic gateway: local outbound log only (no real message). The policy was re-checked at dispatch time by
+      // the job that queued the message. Delivery is confirmed immediately by the mock; a real gateway adapter must
+      // return SENT and later a delivery receipt, which the same status fields and reminder jobs record.
       const id = String(payload.outboundMessageId);
       const msg = await prisma.outboundMessage.findUnique({ where: { id } });
       if (!msg || msg.status !== "QUEUED") return { done: true, note: "Message not queued" };
-      await prisma.outboundMessage.update({ where: { id }, data: { status: "SENT", sentAt: now, providerRef: `local-outbox-${id}` } });
+      await prisma.outboundMessage.update({ where: { id }, data: { status: "DELIVERED", sentAt: now, deliveredAt: now, providerRef: `local-outbox-${id}` } });
+      await prisma.reminderJob.updateMany({ where: { outboundMessageId: id, status: { in: ["SCHEDULED", "SENT"] } }, data: { status: "DELIVERED", sentAt: now, reason: "Delivered by the synthetic gateway (local log)" } });
       return { done: true };
     }
     default:

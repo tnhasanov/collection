@@ -101,7 +101,14 @@ export function LiveSupervision({ initial, canManage }: { initial: Data; canMana
                   <td>{a.currentCustomer ? <Link href={`/customers/${a.currentCustomer.id}`}>{a.currentCustomer.id}</Link> : a.confirmedState === "READY" ? "Awaiting work" : "None"}{a.currentCustomer ? <div className="text-xs text-muted">{a.currentCustomer.status.toLowerCase()} · bucket {a.currentCustomer.bucket ?? "—"}</div> : null}</td>
                   <td>{a.queue}</td>
                   <td className="text-xs tabular-nums">{fmtDuration(a.ringSeconds)} / {fmtDuration(a.talkSeconds)} / {fmtDuration(a.acwSeconds)}</td>
-                  <td>{a.outcomeState}</td>
+                  <td>
+                    {a.outcomeState}
+                    {a.callControl && (a.callControl.lastError || a.callControl.pending.length > 0 || a.callControl.muted || a.callControl.held) && (
+                      <div className={`text-xs ${a.callControl.lastError ? "text-danger" : "text-muted"}`}>
+                        {[a.callControl.muted ? "muted" : null, a.callControl.held ? "on hold" : null, a.callControl.pending.length ? `pending ${a.callControl.pending.join("/").toLowerCase()}` : null, a.callControl.lastError].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
+                  </td>
                   <td className="text-xs">
                     <span className={a.ctiConnected ? "text-success" : "text-danger"}>{a.ctiStatus.toLowerCase()}</span>
                     {a.heartbeatAgeSec !== null && <span className="text-muted"> · browser {a.heartbeatAgeSec}s</span>}
@@ -115,6 +122,9 @@ export function LiveSupervision({ initial, canManage }: { initial: Data; canMana
                   <td className="num">{fmtAzn(a.attributedCash, false)}</td>
                   {canManage && (
                     <td>
+                      {a.interactionId && a.interactionStatus === "OPEN" && (
+                        <Button size="sm" variant="danger" title="Ends the call on our side when the provider did not confirm End; the agent must still save the outcome" onClick={() => control("FORCE_END_CALL", { interactionId: a.interactionId })}>Force end call</Button>
+                      )}
                       {a.interactionId && (a.outcomeState === "Wrap-up failed" || a.outcomeState === "Awaiting provider ack") && (
                         <div className="flex flex-col gap-1">
                           <Button size="sm" onClick={() => assist(a.interactionId!, "RETRY_PROVIDER_WRAPUP")}>Retry wrap-up</Button>
