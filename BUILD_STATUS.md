@@ -1,6 +1,27 @@
 # Build status — ATB Collections (synthetic demo)
 
-Last updated: 30 Oct 2026 (agent workspace redesign and call-lifecycle repair) · branch `claude/bold-bohr-njc446`
+Last updated: 30 Oct 2026 (one customer = one row; agent workspace redesign and call-lifecycle repair) · branch `claude/bold-bohr-njc446`
+
+## One customer = one compact row (30 Oct 2026)
+
+Diagnosis before changing anything: the **work queue** (`/work-queue`) listed work items, so a customer with both a
+call and a callback appeared twice — on different pages, with the page count counting items (C-DEMO-025 in the
+synthetic data) — and each row wrapped to 6–7 lines over 15 columns. The **customer list** (`/customers`) already
+returned one record per customer, but only after a search, with the customer id stacked under the name.
+
+| Area | What changed | Where |
+|---|---|---|
+| Customer list | Scoped portfolio list (no search needed): one row per customer id with Müştəri, CIF, Kredit sayı, Gecikmiş cəmi, Maks. gecikmə günü, Status / növbəti iş; search, "with overdue / all with active loans", sort and paging. Aggregation in SQL over active loans (each loan once), scope and search applied before grouping and paging, total = distinct customers, ties broken by customer id | `customers/customerListService.ts`, `(shell)/customers/page.tsx` |
+| Work queue | Matching work items grouped by customer id BEFORE paging; each customer placed by its next work item in workflow order (in a call, claimed, due callback, rank, priority, age — the claim order); "+N" for the other open work; KPIs count distinct customers; filters still select work items; ERA, probability, bucket and policy details moved into the panel | `work/queueService.ts`, `work/nextWork.ts`, `(shell)/work-queue/page.tsx` |
+| Detail panel | Right-side, read-only panel (name, "N kredit", "+N" or the details button): summary, next work with blocker and owner, other open work, individual loans (link to the loan page), open promises with the loans they cover, last contact and outcome, link to the full profile. Escape closes; focus returns to the row; list position and selection kept. Opening it never claims, reserves or dials; the view is scoped and audited | `customers/CustomerDetailPanel.tsx`, `customers/CustomerRowsTable.tsx`, `api/customers/[id]/overview` |
+| Presentation | 46 px rows, 14 px text, every cell on one line with ellipsis and the full value in a tooltip; below 768 px only name, overdue and status remain (details in the panel) | `globals.css` (`.rows-table`, `.detail-panel`) |
+| Search fix | "N matching customers are outside your scope" now subtracts all in-scope matches, not only the rows on the page | `customers/customerService.ts` |
+
+Unchanged on purpose (separate events or items stay separate): call history and timeline, payment transactions,
+audit history, promise and task lists, agent follow-ups and the dashboard lists.
+
+Evidence: `tests/integration/customerRows.test.ts` (7), `tests/unit/nextWork.test.ts` (3), `e2e/customer-rows.mjs`
+(32 checks at 1366×768, 1440×900, 390×844). Screenshots before/after: `docs/screenshots/customer-rows/`.
 
 ## Agent workspace redesign and call-lifecycle repair (30 Oct 2026)
 
@@ -89,11 +110,11 @@ handover: `MORNING_HANDOVER.md`.
 |---|---|
 | `npm run typecheck` | clean |
 | `npm run lint` | clean |
-| `npm test` (unit) | 72 passing (8 files) — incl. `conversation.test.ts`: script values = form values, custom amount/date restore, consent cleared on term changes and never set implicitly, date shortcuts inside the horizon, identity restrictions and stash/restore, stage restore, Azerbaijani error text |
-| `npm run test:integration` | 49 passing (5 files) — incl. `lifecycle.test.ts`: rejected End + retry with a new key, unknown End dead-lettered → FAILED with the call still open, concurrent End → one command, stale accepted End → RECONCILE → after-call work, reload reconciles legacy pending End, `call.ended` before `agent.bridged`, foreign call leg ignored, concurrent outcome saves → one effect, no dispatch before a valid wrap-up, callback blockers recomputed at the current clock |
+| `npm test` (unit) | 75 passing (9 files) — incl. `conversation.test.ts` and `nextWork.test.ts` (workflow order of a customer's open work) |
+| `npm run test:integration` | 56 passing (6 files) — incl. `customerRows.test.ts`: two loans → one row (150.35 = 100.10 + 50.25, closed loan excluded, max DPD 40), same-name customers separate, distinct-customer totals and non-overlapping pages, sort follows displayed values, scope before aggregation, grouped queue (one row per customer across pages, header = distinct customers), read-only overview (no claim, no reservation) |
 | `npx next build` | succeeds |
-| `node e2e/workspace-redesign.mjs` | 26/26 checks (1366×768, 1440×900, 390×844; synthetic data, mock telephony) |
-| `node e2e/pilot-journeys.mjs` | agent, team lead, head and admin journeys complete at 1366 and 1440 (screenshots in `docs/screenshots/after`) |
+| `node e2e/customer-rows.mjs` | 32/32 checks: one row per customer id, no wrapped cells, 46 px rows with 14 px text at 1366/1440, no horizontal scroll at 1366/1440/390, the customer with a call and a callback once across all queue pages, panel keyboard/Escape/focus/position, "N kredit" opens the loans, "+N" lists other work, nothing claimed |
+| `node e2e/workspace-redesign.mjs` | 26/26 checks (agent call flow and drafts unchanged) |
 
 ## Scope status by screen
 

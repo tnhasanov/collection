@@ -605,3 +605,92 @@ body {
 html:has(.slim-bar) {
   scroll-padding-bottom: 96px;
 }
+
+/* One customer = one compact row (customer list, work queue) and the right-side customer detail panel. */
+@layer components {
+  .rows-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rows-table th {
+    @apply bg-canvas px-3 text-left font-medium text-muted;
+    font-size: 13px;
+    height: 40px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .rows-table td {
+    @apply px-3 text-ink;
+    height: 46px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .rows-table tbody tr:hover td {
+    background: #fbf8fe;
+  }
+  .rows-table tbody tr[data-selected="true"] td {
+    background: var(--color-brand-light);
+  }
+  .rows-table tbody tr[data-selected="true"] td:first-child {
+    box-shadow: inset 3px 0 0 var(--color-brand);
+  }
+  .rows-table .num {
+    text-align: right;
+  }
+  .cell-button {
+    @apply rounded-sm text-left font-medium;
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-brand);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .cell-button:hover {
+    text-decoration: underline;
+  }
+  .cell-button:focus-visible,
+  .rows-table a:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  .status-chip {
+    @apply inline-flex max-w-full items-center gap-1.5 rounded-md px-2 text-[13px] font-medium;
+    height: 26px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .detail-panel {
+    @apply fixed top-0 right-0 bottom-0 z-40 flex flex-col border-l bg-surface;
+    width: min(460px, 100vw);
+    border-color: var(--color-line);
+    box-shadow: -12px 0 32px -18px rgba(37, 22, 49, 0.45);
+  }
+  .detail-panel section + section {
+    border-top: 1px solid var(--color-line);
+  }
+  .detail-panel h3 {
+    @apply text-sm font-semibold text-ink;
+  }
+  .detail-panel h3:focus {
+    outline: none;
+  }
+  .detail-panel h3:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}

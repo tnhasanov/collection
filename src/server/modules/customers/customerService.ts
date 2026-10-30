@@ -196,9 +196,11 @@ export async function searchCustomers(db: Db, q: string, opts: { limit?: number;
   ];
   const match: Prisma.CustomerWhereInput = { OR: or };
   const scopeWhere = opts.scope ? customerWhere(opts.scope) : {};
-  const [customers, total] = await Promise.all([
+  // Matches outside the scope = all matches minus the in-scope matches (not minus the rows on this page).
+  const [customers, total, inScope] = await Promise.all([
     db.customer.findMany({ where: { AND: [match, scopeWhere] }, take: limit, orderBy: { displayName: "asc" }, include: { loans: { select: { id: true, dpd: true, totalOverdue: true } } } }),
     opts.scope ? db.customer.count({ where: match }) : Promise.resolve(0),
+    opts.scope ? db.customer.count({ where: { AND: [match, scopeWhere] } }) : Promise.resolve(0),
   ]);
   const rows = customers.map((c) => ({
     id: c.id,
@@ -210,5 +212,5 @@ export async function searchCustomers(db: Db, q: string, opts: { limit?: number;
     loans: c.loans.length,
     matchedBy: (loan && loan.customerId === c.id ? "LOAN" : phoneCustomers.some((p) => p.customerId === c.id) ? "PHONE" : c.cif.toLowerCase().includes(term.toLowerCase()) ? "CIF" : "NAME_OR_ID") as SearchResult["rows"][number]["matchedBy"],
   }));
-  return { rows, hiddenByScope: opts.scope ? Math.max(0, total - rows.length) : 0, normalized: { phone } };
+  return { rows, hiddenByScope: opts.scope ? Math.max(0, total - inScope) : 0, normalized: { phone } };
 }

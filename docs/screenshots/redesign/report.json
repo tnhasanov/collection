@@ -63,7 +63,7 @@
     {
       "name": "follow-up list renders",
       "ok": true,
-      "detail": "22 rows"
+      "detail": "23 rows"
     },
     {
       "name": "overdue and due-today items first",
@@ -88,7 +88,7 @@
     {
       "name": "sticky bar does not cover the agreement checkbox at 1440px",
       "ok": true,
-      "detail": "{\"inputBottom\":796,\"barTop\":840,\"ok\":true}"
+      "detail": "{\"inputBottom\":560,\"barTop\":778,\"ok\":true}"
     },
     {
       "name": "no horizontal page scroll at 390px (call)",
@@ -155,7 +155,7 @@
       "buttonHeight": 38
     },
     "promise-form-1366": {
-      "pageHeight": 1196,
+      "pageHeight": 1266,
       "viewport": "1366x768",
       "horizontalScroll": false,
       "choiceFont": 14,
@@ -166,7 +166,7 @@
       "buttonHeight": 38
     },
     "follow-ups-1366": {
-      "pageHeight": 1798,
+      "pageHeight": 1863,
       "viewport": "1366x768",
       "horizontalScroll": false,
       "choiceFont": null,
@@ -177,7 +177,7 @@
       "buttonHeight": 32
     },
     "promise-form-1440": {
-      "pageHeight": 1136,
+      "pageHeight": 1205,
       "viewport": "1440x900",
       "horizontalScroll": false,
       "choiceFont": 14,
@@ -188,7 +188,7 @@
       "buttonHeight": 38
     },
     "promise-form-390": {
-      "pageHeight": 2164,
+      "pageHeight": 2316,
       "viewport": "390x844",
       "horizontalScroll": false,
       "choiceFont": 14,
@@ -210,7 +210,7 @@
       "buttonHeight": 32
     },
     "follow-ups-1440": {
-      "pageHeight": 1744,
+      "pageHeight": 1809,
       "viewport": "1440x900",
       "horizontalScroll": false,
       "choiceFont": null,
@@ -232,7 +232,7 @@
       "buttonHeight": 32
     },
     "follow-ups-390": {
-      "pageHeight": 4198,
+      "pageHeight": 4371,
       "viewport": "390x844",
       "horizontalScroll": false,
       "choiceFont": null,

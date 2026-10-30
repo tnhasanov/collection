@@ -106,7 +106,7 @@ describe("one authorization scope for lists, search, totals and detail access", 
     expect(searchB.rows.map((r) => r.id)).toEqual([customerId]);
     // Lists and headers apply the same scope before paging: nothing outside scopeA appears for agent A.
     const q = await listWorkQueue(prisma, agentA, { queue: "all", page: 1, pageSize: 500 }, scopeA);
-    for (const r of q.rows) expect(scopeA.customerIds).toContain(r.customerId);
+    for (const r of q.rows) expect(scopeA.customerIds).toContain(r.id);
     const header = await queueHeader(prisma, agentA, scopeA, now);
     expect(header.eligible).toBeLessThanOrEqual(await prisma.workItem.count({ where: { customerId: { in: scopeA.customerIds }, type: { in: ["CALL", "CALLBACK"] }, status: "ELIGIBLE" } }));
     // Fourteen days later the single historical interaction no longer grants agent B access.

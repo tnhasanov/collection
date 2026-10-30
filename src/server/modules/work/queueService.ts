@@ -2,8 +2,9 @@ import type { Db } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 import type { SessionUser } from "@/server/auth/session";
 import { byCustomerWhere, customerScope, scopeIsUnscoped, type CustomerScope } from "@/server/auth/scope";
-import { fromDbDate } from "@/server/dates";
 import { now as domainNow } from "@/server/clock";
+import { compareWork, orderWork, workStatusCode } from "@/server/modules/work/nextWork";
+import { attachWork, customerAggregates, type CustomerRow } from "@/server/modules/customers/customerListService";
 
 export interface QueueFilters {
   queue: "mine" | "all" | "senior" | "callbacks" | "blocked" | "manual" | "later";
@@ -22,8 +23,9 @@ export interface QueueFilters {
  * sees items for customers they may open (owned/claimed work, live reservations, recent own interactions). Pooled work
  * reaches an agent through dialer allocation or the atomic "Get next customer" claim, never by browsing.
  */
-export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters, scope?: CustomerScope) {
-  scope ??= await customerScope(db, user, await domainNow());
+export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters, scope?: CustomerScope, at?: Date) {
+  const now = at ?? (await domainNow());
+  scope ??= await customerScope(db, user, now);
   const where: Prisma.WorkItemWhereInput = { status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...byCustomerWhere(scope) };
   const voice: Prisma.WorkItemWhereInput = { type: { in: ["CALL", "CALLBACK"] } };
   switch (f.queue) {
@@ -56,57 +58,30 @@ export async function listWorkQueue(db: Db, user: SessionUser, f: QueueFilters, 
   if (f.riskClass) where.decisionSnapshot = { ...(where.decisionSnapshot as object), riskClass: Number(f.riskClass) };
   if (f.band) where.decisionSnapshot = { ...(where.decisionSnapshot as object), segment: f.band as never };
 
-  const [total, rows] = await Promise.all([
-    db.workItem.count({ where }),
-    db.workItem.findMany({
-      where,
-      include: { customer: { include: { loans: { select: { dpd: true, totalOverdue: true, status: true, oldestUnpaidDueDate: true } } } }, decisionSnapshot: true, owner: { select: { displayName: true } }, claimedBy: { select: { displayName: true } }, interactions: { orderBy: { startedAt: "desc" }, take: 1 } },
-      orderBy: [{ status: "asc" }, { rank: { sort: "asc", nulls: "last" } }, { priority: "desc" }, { dueAt: "asc" }],
-      skip: (f.page - 1) * f.pageSize,
-      take: f.pageSize,
-    }),
-  ]);
-  const promises = await db.promise.findMany({ where: { customerId: { in: rows.map((r) => r.customerId) }, status: { in: ["ACTIVE", "PARTIALLY_PAID", "PENDING_RECONCILIATION", "BROKEN"] } }, select: { customerId: true, status: true, amount: true, deadlineDate: true } });
-  const lastOutcome = await db.interaction.findMany({ where: { customerId: { in: rows.map((r) => r.customerId) }, status: { in: ["SAVED", "CORRECTED"] } }, orderBy: { startedAt: "desc" }, distinct: ["customerId"], select: { customerId: true, businessOutcome: true, technicalResult: true, identityStatus: true, startedAt: true } });
-  return {
-    total,
-    rows: rows.map((r) => {
-      const active = r.customer.loans.filter((l) => l.status === "ACTIVE");
-      const pr = promises.find((p) => p.customerId === r.customerId);
-      const lo = lastOutcome.find((l) => l.customerId === r.customerId);
-      return {
-        id: r.id,
-        type: r.type,
-        status: r.status,
-        rank: r.rank,
-        customerId: r.customerId,
-        customerName: r.customer.displayName,
-        cif: r.customer.cif,
-        language: r.customer.language,
-        branch: r.customer.branch,
-        loans: active.length,
-        maxDpd: active.reduce((m, l) => Math.max(m, l.dpd), 0),
-        overdue: active.reduce((s, l) => s + Number(l.totalOverdue), 0).toFixed(2),
-        exposure: r.decisionSnapshot?.exposure.toString() ?? null,
-        probability: r.decisionSnapshot?.probability?.toString() ?? null,
-        probabilitySource: r.decisionSnapshot?.probabilitySource ?? null,
-        riskClass: r.decisionSnapshot?.riskClass ?? null,
-        era: r.decisionSnapshot?.era?.toString() ?? null,
-        bucket: r.decisionSnapshot?.actionBucket ?? null,
-        recommended: r.decisionSnapshot?.recommendedAction ?? null,
-        effective: r.decisionSnapshot?.effectiveAction ?? null,
-        segment: r.decisionSnapshot?.segment ?? null,
-        nextEligibleAt: r.nextEligibleAt,
-        dueAt: r.dueAt,
-        deferredReasons: r.deferredReasons,
-        lastOutcome: lo ? `${lo.technicalResult ?? ""} / ${lo.identityStatus ?? ""} / ${lo.businessOutcome ?? ""}`.replace(/^ \/ | \/ $/g, "") : null,
-        promise: pr ? { status: pr.status, amount: pr.amount.toString(), deadline: fromDbDate(pr.deadlineDate) } : null,
-        owner: r.owner?.displayName ?? r.claimedBy?.displayName ?? null,
-        requiredSkill: r.requiredSkill,
-        reason: r.reason,
-      };
-    }),
-  };
+  // Group by customer BEFORE paging: every matching work item is read (a few small columns), grouped by the stable
+  // customer id, and the customer is placed by its next work item in workflow order (see nextWork.ts). The total is
+  // the number of distinct customers; work items themselves stay separate records.
+  const matching = await db.workItem.findMany({ where, select: { id: true, customerId: true, type: true, status: true, rank: true, priority: true, dueAt: true, createdAt: true, nextEligibleAt: true, deferredReasons: true } });
+  const groups = new Map<string, typeof matching>();
+  for (const w of matching) groups.set(w.customerId, [...(groups.get(w.customerId) ?? []), w]);
+  const firsts = [...groups.values()].map((items) => orderWork(items, now)[0]).filter(Boolean);
+  firsts.sort((a, b) => compareWork(a, b, now) || (a.customerId < b.customerId ? -1 : 1));
+  const total = firsts.length;
+  const pageItems = firsts.slice((f.page - 1) * f.pageSize, f.page * f.pageSize);
+  const ids = pageItems.map((w) => w.customerId);
+  const [customers, aggregates] = await Promise.all([db.customer.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, cif: true, branch: true } }), customerAggregates(db, ids)]);
+  const base = pageItems.map((w) => {
+    const c = customers.find((x) => x.id === w.customerId)!;
+    const a = aggregates.get(w.customerId) ?? { loans: 0, totalOverdue: "0.00", maxDpd: 0 };
+    return { id: c.id, displayName: c.displayName, cif: c.cif, branch: c.branch, loans: a.loans, totalOverdue: Number(a.totalOverdue).toFixed(2), maxDpd: a.maxDpd };
+  });
+  const withWork = await attachWork(db, base, now);
+  // The displayed next work is the first item that matches this queue view; the open-work count covers all items.
+  const rows: CustomerRow[] = withWork.map((r, i) => {
+    const w = pageItems[i];
+    return { ...r, rank: w.rank, next: { id: w.id, type: w.type, status: w.status, code: workStatusCode(w, now), dueAt: w.dueAt, nextEligibleAt: w.nextEligibleAt, reasons: w.deferredReasons } };
+  });
+  return { total, rows };
 }
 
 /** Header KPIs use the same scope as the list (aggregates never leak rows the user could not open). */
@@ -115,12 +90,14 @@ export async function queueHeader(db: Db, user: SessionUser, scope?: CustomerSco
   scope ??= await customerScope(db, user, now);
   const inScope = byCustomerWhere(scope);
   const mine = scopeIsUnscoped(scope) ? {} : { OR: [{ ownerUserId: user.id }, { claimedByUserId: user.id }] };
+  // Counts are distinct customers, matching the one-row-per-customer list.
+  const customers = async (where: Prisma.WorkItemWhereInput) => (await db.workItem.findMany({ where, distinct: ["customerId"], select: { customerId: true } })).length;
   const [assigned, eligible, callbacksDue, senior, blocked, lastRun, policy, sessions] = await Promise.all([
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...inScope, ...mine } }),
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "ELIGIBLE", ...inScope } }),
-    db.workItem.count({ where: { type: "CALLBACK", status: { in: ["ELIGIBLE", "DEFERRED"] }, dueAt: { lte: new Date(now.getTime() + 86_400_000) }, ...inScope } }),
-    db.workItem.count({ where: { type: "CALL", status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] }, requiredSkill: "SENIOR", ...inScope } }),
-    db.workItem.count({ where: { type: { in: ["CALL", "CALLBACK"] }, status: "DEFERRED", ...inScope } }),
+    customers({ type: { in: ["CALL", "CALLBACK"] }, status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED", "CLAIMED", "IN_PROGRESS"] }, ...inScope, ...mine }),
+    customers({ type: { in: ["CALL", "CALLBACK"] }, status: "ELIGIBLE", ...inScope }),
+    customers({ type: "CALLBACK", status: { in: ["ELIGIBLE", "DEFERRED"] }, dueAt: { lte: new Date(now.getTime() + 86_400_000) }, ...inScope }),
+    customers({ type: "CALL", status: { in: ["QUEUED", "ELIGIBLE", "DEFERRED"] }, requiredSkill: "SENIOR", ...inScope }),
+    customers({ type: { in: ["CALL", "CALLBACK"] }, status: "DEFERRED", ...inScope }),
     db.decisionRun.findFirst({ orderBy: { startedAt: "desc" } }),
     db.contactPolicyVersion.findFirst({ where: { status: "ACTIVE" } }),
     db.agentSession.count({ where: { isActive: true, confirmedState: { in: ["READY", "RESERVED", "DIALING", "TALKING", "ACW"] } } }),

@@ -1,0 +1,226 @@
+{
+  "checks": [
+    {
+      "name": "customers 1366: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "customers 1366: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "customers 1366: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "customers 1366: rows 44–48 px, 14 px text",
+      "ok": true,
+      "detail": "46-46px, 14px"
+    },
+    {
+      "name": "work-queue 1366: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "work-queue 1366: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "work-queue 1366: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "work-queue 1366: rows 44–48 px, 14 px text",
+      "ok": true,
+      "detail": "46-46px, 14px"
+    },
+    {
+      "name": "customers 1440: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "customers 1440: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "customers 1440: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "customers 1440: rows 44–48 px, 14 px text",
+      "ok": true,
+      "detail": "46-46px, 14px"
+    },
+    {
+      "name": "work-queue 1440: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "work-queue 1440: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "work-queue 1440: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "work-queue 1440: rows 44–48 px, 14 px text",
+      "ok": true,
+      "detail": "46-46px, 14px"
+    },
+    {
+      "name": "customers 390: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "customers 390: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "customers 390: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "work-queue 390: one row per customer id",
+      "ok": true,
+      "detail": "25 rows"
+    },
+    {
+      "name": "work-queue 390: every cell on one line",
+      "ok": true,
+      "detail": "0 wrapped"
+    },
+    {
+      "name": "work-queue 390: no horizontal page scroll",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "customer with a call and a callback appears once across all queue pages",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "name": "Enter on the customer name opens the detail panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "panel lists the customer's individual loans",
+      "ok": true,
+      "detail": "2 kredit → 2 loan cards"
+    },
+    {
+      "name": "panel shows promises, last contact and next work",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Escape closes the panel; focus returns to the row; list position and selection kept",
+      "ok": true,
+      "detail": "focus=row-open scroll 300→300 selected=true"
+    },
+    {
+      "name": "\"2 kredit\" opens the panel at the loans section",
+      "ok": true,
+      "detail": "focus=cd-loans"
+    },
+    {
+      "name": "opening details claims, reserves or dials nothing",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a customer with several open work items shows one row with \"+N\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "other open work of a customer is listed in the panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "narrow: panel uses the full width",
+      "ok": true,
+      "detail": "390px"
+    }
+  ],
+  "measurements": {
+    "customers-1366": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 7
+    },
+    "work-queue-1366": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 8
+    },
+    "customers-1440": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 7
+    },
+    "work-queue-1440": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 8
+    },
+    "customers-390": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 3
+    },
+    "work-queue-390": {
+      "rows": 25,
+      "uniqueIds": 25,
+      "rowHeightMin": 46,
+      "rowHeightMax": 46,
+      "wrappedCells": 0,
+      "nameFont": 14,
+      "horizontalScroll": false,
+      "visibleColumns": 3
+    }
+  }
+}
