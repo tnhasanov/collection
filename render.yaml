@@ -1,21 +1,22 @@
-# Render Blueprint for the ATB Collections demo (synthetic data, mock adapters, no real integrations).
+# Render Blueprint for the ATB Collections controlled pilot (synthetic data, mock adapters, no real integrations).
 # Render dashboard → New → Blueprint → select this repository and branch → Apply.
-# Free plans are used so the demo costs nothing; see DEPLOYMENT.md for their limits and the paid alternatives.
+# Always-on paid plans (web "starter", database "basic-256mb") keep the worker running between visits and keep the
+# data beyond Render's free-database lifetime; switch both back to "free" for a cost-free demo (see DEPLOYMENT.md).
 databases:
   - name: atb-collections-db
     databaseName: atb_collections
     user: atb
-    plan: free            # free databases expire after a period set by Render; upgrade (basic-256mb) to keep the data
+    plan: basic-256mb     # paid: data kept for the whole pilot; "free" databases are deleted after Render's free period
     region: frankfurt
 
 services:
   - type: web
     name: atb-collections
     runtime: docker
-    plan: free            # sleeps after ~15 minutes without traffic; upgrade to starter for an always-on demo
+    plan: starter         # paid: always on, so reminders, aging and the dialer worker run between visits
     region: frankfurt
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /login
+    healthCheckPath: /api/health/ready   # 200 only when the database is reachable and every migration is applied
     autoDeploy: true
     envVars:
       - key: DATABASE_URL
@@ -25,7 +26,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_MODE
-        value: DEMO
+        value: PILOT       # individual tester identities (pilot-users.json), no shared demo logins, no role switch
       - key: DEMO_CLOCK_MODE
         value: offset
       - key: PGBOSS_SCHEMA

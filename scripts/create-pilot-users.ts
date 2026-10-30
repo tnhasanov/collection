@@ -10,6 +10,8 @@ import type { Language, Role, Seniority } from "../src/generated/prisma/enums";
  *
  *   npm run pilot:users -- --example pilot-users.json      # writes an example definition file
  *   npm run pilot:users -- pilot-users.json                # creates/updates the users, prints one-time passwords
+ *   npm run pilot:users -- --if-missing pilot-users.json   # boot mode: creates only testers that do not exist yet,
+ *                                                          # never resets a password (safe to run at every start)
  *   npm run pilot:users -- --disable-demo-identities       # deactivates the shared demo accounts (seeded *@demo.atb.local)
  *
  * Every created user gets a random temporary password (printed once, never stored in clear) and must set a personal
@@ -60,12 +62,18 @@ async function main() {
       console.log(`Disabled ${r.count} shared demo identities and revoked their sessions. Demo history stays attributed to them.`);
       return;
     }
-    const file = args[0];
-    if (!file) throw new Error("Usage: pilot:users <definitions.json> | --example [file] | --disable-demo-identities");
+    const ifMissing = args[0] === "--if-missing";
+    const file = ifMissing ? args[1] : args[0];
+    if (!file) throw new Error("Usage: pilot:users [--if-missing] <definitions.json> | --example [file] | --disable-demo-identities");
     const defs = JSON.parse(readFileSync(file, "utf8")) as Def[];
     const rows: { username: string; role: string; password: string }[] = [];
+    let skipped = 0;
     for (const d of defs) {
       if (!/^[a-z0-9._-]{3,40}$/.test(d.username)) throw new Error(`Invalid username ${d.username} (lowercase letters, digits, . _ -)`);
+      if (ifMissing && (await prisma.user.findUnique({ where: { username: d.username }, select: { id: true } }))) {
+        skipped++;
+        continue;
+      }
       const password = tempPassword();
       const isAgent = d.role === "AGENT" || d.role === "SENIOR_AGENT";
       const user = await prisma.user.upsert({
@@ -97,9 +105,13 @@ async function main() {
       await prisma.auditEvent.create({ data: { action: "pilot.user_provisioned", objectType: "User", objectId: user.id, actorService: "pilot-script", changes: { username: d.username, role: d.role } as never } });
       rows.push({ username: d.username, role: d.role, password });
     }
+    if (rows.length === 0) {
+      console.log(`No new tester identities (${skipped} already exist; passwords unchanged).`);
+      return;
+    }
     console.log("\nOne-time temporary passwords (hand each to its tester privately; they are not stored in clear):\n");
     for (const r of rows) console.log(`  ${r.username.padEnd(20)} ${r.role.padEnd(20)} ${r.password}`);
-    console.log("\nEach tester must set a personal password at first sign-in (mustChangePassword).");
+    console.log(`\nEach tester must set a personal password at first sign-in (mustChangePassword).${skipped ? ` ${skipped} existing identities were left unchanged.` : ""}`);
   } finally {
     await prisma.$disconnect();
   }

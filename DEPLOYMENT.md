@@ -57,13 +57,18 @@ PILOT keeps synthetic data and mock integrations but replaces the shared demo lo
 identities**: no shared password, no role switching, a personal password set at first sign-in, sign-in attempts rate
 limited per IP and per username, every action attributed to the tester. Nothing real is connected.
 
-1. Set `APP_MODE=PILOT` on the service (and keep `DEMO_CLOCK_MODE=offset`, the `CONNECTOR_*` mocks, a strong
-   `SESSION_SECRET`). Redeploy.
-2. Create the testers: `npm run pilot:users -- --example pilot-users.json`, edit the file (usernames, roles, teams,
-   extensions for agents), then `npm run pilot:users -- pilot-users.json`. The script prints each temporary password
-   **once**; hand them over privately. Testers must set a personal password at first sign-in.
-3. Disable the shared demo identities: `npm run pilot:users -- --disable-demo-identities` (their history stays; the
-   sign-in page warns while any shared identity is still active).
+1. Set `APP_MODE=PILOT` on the service (the committed `render.yaml` already does; keep the `CONNECTOR_*` mocks and a
+   strong `SESSION_SECRET`). PILOT runs on the real clock (the demo offset applies to DEMO only); the worker's
+   catch-up ages the synthetic portfolio to the current Baku business date at the first start.
+2. Tester identities come from `pilot-users.json` in the repository (seven roles by default: two agents, a senior
+   agent, a team lead, a head, an integration operator, an administrator). At every boot `scripts/start-all.sh`
+   creates the ones that do not exist yet (`npm run pilot:users -- --if-missing pilot-users.json`); existing
+   passwords are never reset. The **one-time temporary passwords of newly created testers are printed once in the
+   deploy log** (Render → the service → Logs, block "One-time temporary passwords"); copy them from there and hand them
+   over privately. Each tester must set a personal password at first sign-in. To add testers later, extend the JSON
+   file and redeploy, or run the script from a shell on the host. For a different file set `PILOT_USERS_FILE`.
+3. The shared demo identities are deactivated automatically at boot in PILOT mode (their history stays; the sign-in
+   page warns while any shared identity is still active). To do it by hand: `npm run pilot:users -- --disable-demo-identities`.
 4. The payment simulator (`/payments`) stays available to `payment.simulate` roles so testers can post synthetic
    payments against any active loan; the "L-DEMO-001" and every other loan are searchable there.
 5. Reference data that an existing database needs for the pilot features (payment-instruction SMS templates,
@@ -76,8 +81,11 @@ The sign-in rate limiter is in-memory per web instance; with more than one web i
 
 - **Health**: `GET /api/health/live` always answers 200 while the process runs (restart signal for the host);
   `GET /api/health/ready` answers 200 only when PostgreSQL is reachable and every migration is applied (503
-  otherwise) and reports the worker heartbeat (`checks.worker.online`, last catch-up, provider capabilities). Point
-  the host's health check at `/api/health/ready`. Both routes are public.
+  otherwise) and reports the worker heartbeat (`checks.worker.online`, last catch-up, provider capabilities). The
+  blueprint's `healthCheckPath` points at `/api/health/ready`. Both routes are public.
+- **Plans**: the blueprint uses `starter` for the web service and `basic-256mb` for the database (always on; data
+  kept). Both are paid plans (check Render's current prices, roughly 7 USD/month each); set both back to `free` in
+  `render.yaml` and sync the blueprint for a cost-free demo that sleeps when idle.
 - **Worker**: one process (`src/worker/main.ts`) owns the dialer adapter and runs the durable jobs on pg-boss:
   outbox dispatch (1 s), allocation (2 s), maintenance (15 s), promise maturation / reminders / provider
   reconciliation (every minute), mock source refresh and daily aging (every 2 min), SMS campaigns (5 min), daily

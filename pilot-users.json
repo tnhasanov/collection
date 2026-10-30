@@ -1,0 +1,9 @@
+[
+  { "username": "pilot.agent1", "displayName": "Pilot Agent 1", "role": "AGENT", "teamId": "T-REGULAR", "languages": ["AZ", "RU"], "seniority": "REGULAR", "extension": "2101" },
+  { "username": "pilot.agent2", "displayName": "Pilot Agent 2", "role": "AGENT", "teamId": "T-REGULAR", "languages": ["AZ"], "seniority": "REGULAR", "extension": "2102" },
+  { "username": "pilot.senior1", "displayName": "Pilot Senior Agent 1", "role": "SENIOR_AGENT", "teamId": "T-SENIOR", "languages": ["AZ", "RU", "EN"], "seniority": "SENIOR", "extension": "2201" },
+  { "username": "pilot.lead", "displayName": "Pilot Team Lead", "role": "TEAM_LEAD", "teamId": "T-MGMT", "languages": ["AZ", "RU"] },
+  { "username": "pilot.head", "displayName": "Pilot Collections Head", "role": "COLLECTIONS_HEAD", "teamId": "T-MGMT", "languages": ["AZ", "EN"] },
+  { "username": "pilot.operator", "displayName": "Pilot Integration Operator", "role": "INTEGRATION_OPERATOR", "teamId": "T-TECH", "languages": ["AZ", "EN"] },
+  { "username": "pilot.admin", "displayName": "Pilot Administrator", "role": "ADMIN", "teamId": "T-TECH", "languages": ["AZ", "EN"] }
+]

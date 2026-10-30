@@ -8,7 +8,7 @@ is Azerbaijani; switch to English or Russian from the topbar.
 
 | Step | Who | How |
 |---|---|---|
-| Receive your personal identity | everyone | The pilot coordinator runs `npm run pilot:users` and hands you a username and a one-time password privately. |
+| Receive your personal identity | everyone | The coordinator reads the one-time passwords from the deploy log (Render → Logs, block "One-time temporary passwords"; identities are defined in `pilot-users.json`) and hands you your username and password privately. |
 | First sign-in | everyone | `/login` → enter username and the temporary password → set a personal password (10+ characters, letter and digit). |
 | Check the environment | coordinator | `/api/health/ready` returns `ok: true` with `checks.worker.online: true`; the topbar shows `PİLOT · sintetik` and no "Worker offline" badge. |
 

@@ -12,7 +12,7 @@ import { seedPilotReference } from "./seed/pilotReference";
  * Business date 27 Oct 2026 (Asia/Baku). No real customer data is used anywhere.
  */
 export async function seedDatabase(prisma: ReturnType<typeof createPrismaClient>) {
-  if (process.env.APP_MODE !== "DEMO") throw new Error("Seeding synthetic data is only allowed in DEMO mode");
+  if (process.env.APP_MODE === "INTEGRATION") throw new Error("Seeding synthetic data is not allowed in INTEGRATION mode");
   const started = Date.now();
   const rng = createRng(20261027);
 
