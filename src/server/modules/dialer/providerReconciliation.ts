@@ -6,6 +6,7 @@ import { MOCK_PROVIDER, MockDialerAdapter } from "@/server/modules/dialer/mockDi
 import { ingestProviderEvent } from "@/server/modules/dialer/providerEventService";
 import { applyConfirmedState } from "@/server/modules/dialer/agentSessionService";
 import { appendAudit } from "@/server/modules/audit/audit";
+import { completeEndCommands, refreshInteractionCommands, withControlState } from "@/server/modules/dialer/callControlService";
 
 /**
  * Provider state reconciliation.
@@ -102,13 +103,15 @@ export async function reconcileProviderState(prisma: PrismaClient, adapter: Dial
       hydrated = true;
       provider = await adapter.getInteraction(ref);
     }
-    const control = readControlState(i.controlState);
+    // Commands whose outbox message was dead-lettered or never dispatched are resolved first (never left pending).
+    await refreshInteractionCommands(prisma, i.id, now);
+    const control = readControlState((await prisma.interaction.findUnique({ where: { id: i.id }, select: { controlState: true } }))?.controlState ?? i.controlState);
     if (provider.state === "ENDED") {
       const endedAt = provider.endedAt ?? now.toISOString();
       const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${ref}:call.ended`, eventType: "call.ended", occurredAt: endedAt, agentRef: provider.agentRef ?? i.reservation?.agentSession?.providerAgentRef ?? null, providerInteractionRef: ref, correlationId: i.correlationId, payload: { technicalResult: provider.technicalResult ?? "ANSWERED", endedBy: "RECONCILIATION" } };
       const r = await ingestProviderEvent(prisma, ev, now, adapter);
       if (r.status === "DUPLICATE") await scheduleEvents([]);
-      await prisma.interaction.update({ where: { id: i.id }, data: { controlState: { ...control, pending: [], providerState: "ENDED", lastError: null, lastErrorAt: null, updatedAt: now.toISOString() } as never } });
+      await completeEndCommands(prisma, i.id, now, "PROVIDER");
       await prisma.exceptionCase.updateMany({ where: { dedupKey: { in: [`CALL_CONTROL_FAILURE:${i.id}`, `CALL_STATE_UNKNOWN:${i.id}`] }, status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, data: { status: "RESOLVED", resolvedAt: now, resolution: "Provider reported the call as ended; applied by reconciliation" } });
       await appendAudit(prisma, { actorService: "reconciliation", action: "call.reconciled_ended", objectType: "Interaction", objectId: i.id, customerId: i.customerId, correlationId: i.correlationId, changes: { providerEndedAt: endedAt, ingest: r.status } });
       result.endedFromProvider++;
@@ -117,7 +120,7 @@ export async function reconcileProviderState(prisma: PrismaClient, adapter: Dial
     if (provider.state === "UNKNOWN") {
       const since = control.endRequestedAt ? new Date(control.endRequestedAt) : i.connectedAt ?? i.startedAt;
       if (now.getTime() - since.getTime() < UNKNOWN_GRACE_MS) continue;
-      await prisma.interaction.update({ where: { id: i.id }, data: { controlState: { ...control, providerState: "UNKNOWN", lastError: "The provider has no record of this call; a supervisor must resolve it (force end) or the provider must report it", lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
+      await withControlState(prisma, i.id, async (s) => ({ state: { ...s, providerState: "UNKNOWN", lastError: "The provider has no record of this call; a supervisor must resolve it (force end) or the provider must report it", lastErrorAt: now.toISOString(), updatedAt: now.toISOString() }, result: true }));
       await prisma.exceptionCase.upsert({
         where: { dedupKey: `CALL_STATE_UNKNOWN:${i.id}` },
         create: { dedupKey: `CALL_STATE_UNKNOWN:${i.id}`, type: "CALL_STATE_UNKNOWN", severity: "CRITICAL", customerId: i.customerId, caseId: i.caseId, title: "Open call unknown to the provider after reconciliation; supervisor recovery required", evidence: { interactionId: i.id, correlationId: i.correlationId, agentUserId: i.agentUserId, connectedAt: i.connectedAt } as never, slaDueAt: new Date(now.getTime() + 15 * 60_000) },
@@ -135,7 +138,7 @@ export async function reconcileProviderState(prisma: PrismaClient, adapter: Dial
     const wasUnknown = control.providerState === "UNKNOWN";
     if (wasUnknown || control.providerState !== provider.state || control.muted !== !!provider.muted || control.held !== !!provider.held) {
       // A call the provider reports again is healthy: the "no record" error and its exception are cleared.
-      await prisma.interaction.update({ where: { id: i.id }, data: { controlState: { ...control, providerState: provider.state, muted: provider.muted ?? control.muted, held: provider.held ?? control.held, ...(wasUnknown ? { lastError: null, lastErrorAt: null } : {}), updatedAt: now.toISOString() } as never } });
+      await withControlState(prisma, i.id, async (s) => ({ state: { ...s, providerState: provider.state, muted: provider.muted ?? s.muted, held: provider.held ?? s.held, ...(wasUnknown ? { lastError: null, lastErrorAt: null } : {}), updatedAt: now.toISOString() }, result: true }));
       if (wasUnknown) await prisma.exceptionCase.updateMany({ where: { dedupKey: `CALL_STATE_UNKNOWN:${i.id}`, status: { in: ["OPEN", "ASSIGNED", "REOPENED"] } }, data: { status: "RESOLVED", resolvedAt: now, resolution: "Provider reported the call again after reconciliation" } });
     }
   }
@@ -149,7 +152,8 @@ export async function forceEndInteraction(prisma: PrismaClient, params: { intera
   if (i.status !== "OPEN") return { ended: false, status: i.status };
   const talk = i.connectedAt ? Math.max(0, Math.round((params.now.getTime() - i.connectedAt.getTime()) / 1000)) : 0;
   const control = readControlState(i.controlState);
-  await prisma.interaction.update({ where: { id: i.id }, data: { endedAt: params.now, talkSeconds: talk, acwStartedAt: params.now, status: "DRAFT", wrapUpStatus: "PENDING", note: `${i.note ? `${i.note} ` : ""}Call ended by supervisor (${params.reason}); provider state ${control.providerState ?? "unknown"}; talk time is an upper bound.`, controlState: { ...control, pending: [], providerState: control.providerState ?? "UNKNOWN", lastError: null, lastErrorAt: null, updatedAt: params.now.toISOString(), forceEndedBy: params.actorUserId } as never } });
+  await prisma.interaction.update({ where: { id: i.id }, data: { endedAt: params.now, talkSeconds: talk, acwStartedAt: params.now, status: "DRAFT", wrapUpStatus: "PENDING", note: `${i.note ? `${i.note} ` : ""}Call ended by supervisor (${params.reason}); provider state ${control.providerState ?? "unknown"}; talk time is an upper bound.` } });
+  await completeEndCommands(prisma, i.id, params.now, "SUPERVISOR");
   if (i.dialAttemptId) await prisma.dialAttempt.updateMany({ where: { id: i.dialAttemptId, endedAt: null }, data: { endedAt: params.now, technicalResult: "ANSWERED", correctedResult: "UNKNOWN", correctionReason: "Force-ended by supervisor; provider end time unknown" } });
   if (i.reservationId) await prisma.routingReservation.update({ where: { id: i.reservationId }, data: { status: "WRAP_UP" } });
   if (i.reservation?.agentSessionId) await applyConfirmedState(prisma, i.reservation.agentSessionId, "ACW", params.now, { reason: "Call force-ended by supervisor; outcome required" });

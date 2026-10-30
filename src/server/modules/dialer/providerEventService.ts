@@ -5,10 +5,13 @@ import type { TechnicalResult } from "@/generated/prisma/enums";
 import { appendAudit } from "@/server/modules/audit/audit";
 import { refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 import { applyConfirmedState } from "@/server/modules/dialer/agentSessionService";
+import { completeEndCommands } from "@/server/modules/dialer/callControlService";
 
 /**
  * Normalized provider event ingestion. Events are deduplicated by (provider, providerEventId); unknown
- * correlations are recorded and ignored; state transitions are applied idempotently.
+ * correlations are recorded and ignored; state transitions are applied idempotently and never move backwards:
+ * a late "started", "ringing" or "bridged" event that arrives after the call ended only fills missing timestamps,
+ * and an event for a different call leg than the one the interaction is bound to is ignored.
  * A carrier "answered" is never a verified right-party contact; failed attempts are recorded automatically
  * without inventing a conversation.
  */
@@ -64,6 +67,12 @@ export async function ingestProviderEvent(prisma: PrismaClient, event: Normalize
   }
   if (["RELEASED", "CANCELLED", "EXPIRED", "FAILED"].includes(reservation.status) && event.eventType !== "call.ended") return finish("IGNORED", `Reservation already ${reservation.status}`);
   const sessionId = reservation.agentSessionId;
+  const bound = await prisma.interaction.findUnique({ where: { correlationId: event.correlationId }, select: { id: true, status: true, providerInteractionRef: true } });
+  if (bound?.providerInteractionRef && event.providerInteractionRef && bound.providerInteractionRef !== event.providerInteractionRef) {
+    return finish("IGNORED", `Event for call leg ${event.providerInteractionRef}; interaction is bound to ${bound.providerInteractionRef}`);
+  }
+  const callEnded = !!bound && bound.status !== "OPEN";
+  const sessionNow = sessionId ? await prisma.agentSession.findUnique({ where: { id: sessionId }, select: { confirmedState: true } }) : null;
 
   switch (event.eventType) {
     case "reservation.assigned": {
@@ -79,8 +88,9 @@ export async function ingestProviderEvent(prisma: PrismaClient, event: Normalize
         await prisma.dialAttempt.create({ data: { reservationId: reservation.id, contactPointId: reservation.contactPointId, providerAttemptRef: ref, startedAt: new Date(event.occurredAt), technicalResult: "UNKNOWN" } });
       }
       if (["PENDING", "AUTHORIZED"].includes(reservation.status)) await prisma.routingReservation.update({ where: { id: reservation.id }, data: { status: "DIALING" } });
-      if (sessionId) await applyConfirmedState(prisma, sessionId, "DIALING", now);
-      return finish("APPLIED");
+      // Out of order (the call is already connected or ended): keep the newer agent state.
+      if (sessionId && !callEnded && sessionNow && ["READY", "RESERVED", "NOT_READY", "DIALING"].includes(sessionNow.confirmedState) && ["PENDING", "AUTHORIZED", "DIALING"].includes(reservation.status)) await applyConfirmedState(prisma, sessionId, "DIALING", now);
+      return finish("APPLIED", callEnded ? "Late event after the call ended; timestamps only" : undefined);
     }
     case "customer.ringing": {
       await prisma.dialAttempt.updateMany({ where: { reservationId: reservation.id, ringingAt: null }, data: { ringingAt: new Date(event.occurredAt) } });
@@ -93,6 +103,11 @@ export async function ingestProviderEvent(prisma: PrismaClient, event: Normalize
     case "agent.bridged": {
       const attempt = await prisma.dialAttempt.findFirst({ where: { reservationId: reservation.id }, orderBy: { startedAt: "desc" } });
       if (!attempt) return finish("IGNORED", "Bridged without attempt");
+      if (callEnded || attempt.endedAt) {
+        // Bridged reported after the end: record the timestamp, never reopen the call or move the agent back to Talking.
+        await prisma.dialAttempt.update({ where: { id: attempt.id }, data: { bridgedAt: attempt.bridgedAt ?? new Date(event.occurredAt), answeredAt: attempt.answeredAt ?? new Date(event.occurredAt) } });
+        return finish("APPLIED", "Late bridged event after the call ended; timestamps only");
+      }
       await prisma.dialAttempt.update({ where: { id: attempt.id }, data: { bridgedAt: new Date(event.occurredAt), answeredAt: attempt.answeredAt ?? new Date(event.occurredAt), technicalResult: "ANSWERED" } });
       if (reservation.status !== "CONNECTED") await prisma.routingReservation.update({ where: { id: reservation.id }, data: { status: "CONNECTED" } });
       const existing = await prisma.interaction.findUnique({ where: { correlationId: event.correlationId } });
@@ -141,9 +156,26 @@ export async function ingestProviderEvent(prisma: PrismaClient, event: Normalize
           await prisma.interaction.update({ where: { id: interaction.id }, data: { endedAt, talkSeconds: talk, acwStartedAt: endedAt, status: "DRAFT", wrapUpStatus: "PENDING" } });
           await prisma.routingReservation.update({ where: { id: reservation.id }, data: { status: "WRAP_UP" } });
           if (sessionId) await applyConfirmedState(prisma, sessionId, "ACW", now, { reason: "Outcome required before the next call" });
-          await appendAudit(prisma, { actorService: "cti-adapter", action: "interaction.ended", objectType: "Interaction", objectId: interaction.id, customerId: reservation.customerId, correlationId: event.correlationId, changes: { talkSeconds: talk } });
+          await completeEndCommands(prisma, interaction.id, now, "PROVIDER");
+          await appendAudit(prisma, { actorService: "cti-adapter", action: "interaction.ended", objectType: "Interaction", objectId: interaction.id, customerId: reservation.customerId, correlationId: event.correlationId, changes: { talkSeconds: talk, endedBy: event.payload.endedBy ?? null } });
         }
         return finish("APPLIED");
+      }
+      if (payloadResult === "ANSWERED" && reservation.agentUserId && !["RELEASED", "CANCELLED", "EXPIRED", "FAILED"].includes(reservation.status)) {
+        // call.ended overtook agent.bridged: the provider says the customer answered, so the agent was (or may have
+        // been) on the line. The interaction is opened directly in after-call work; nothing is inferred about it.
+        const answeredAt = attempt?.answeredAt ?? attempt?.bridgedAt ?? null;
+        const recovered = await prisma.interaction.create({
+          data: { correlationId: event.correlationId, customerId: reservation.customerId, caseId: reservation.caseId, workItemId: reservation.workItemId, reservationId: reservation.id, dialAttemptId: attempt?.id ?? null, agentUserId: reservation.agentUserId, channel: "VOICE_OUTBOUND", contactPointId: reservation.contactPointId, providerInteractionRef: event.providerInteractionRef ?? null, campaignCode: reservation.campaignCode, startedAt: attempt?.startedAt ?? endedAt, connectedAt: answeredAt, endedAt, acwStartedAt: endedAt, talkSeconds: answeredAt ? Math.max(0, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000)) : null, technicalResult: "ANSWERED", status: "DRAFT", wrapUpStatus: "PENDING", dispositionVersion: "DISP-DEMO-01", policyVersionId: reservation.policyVersionId, note: "Call end reported before the bridge event (out of order); outcome required." },
+        });
+        if (attempt) await prisma.dialAttempt.update({ where: { id: attempt.id }, data: { technicalResult: "ANSWERED" } });
+        await prisma.routingReservation.update({ where: { id: reservation.id }, data: { status: "WRAP_UP" } });
+        if (sessionId) {
+          await prisma.agentSession.update({ where: { id: sessionId }, data: { currentInteractionId: recovered.id } });
+          await applyConfirmedState(prisma, sessionId, "ACW", now, { reason: "Outcome required before the next call" });
+        }
+        await appendAudit(prisma, { actorService: "cti-adapter", action: "interaction.ended_out_of_order", objectType: "Interaction", objectId: recovered.id, customerId: reservation.customerId, correlationId: event.correlationId });
+        return finish("APPLIED", "call.ended before agent.bridged; interaction opened in after-call work");
       }
       // No conversation: record the technical result automatically; retry obeys policy at the next refresh.
       if (!["RELEASED", "CANCELLED", "EXPIRED", "FAILED"].includes(reservation.status)) {

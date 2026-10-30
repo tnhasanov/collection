@@ -65,10 +65,12 @@ export function compareIso(a: IsoDate, b: IsoDate): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export function formatBakuDateTime(at: Date | string | null | undefined, opts: { seconds?: boolean } = {}): string {
+/** English keeps "dd MMM yyyy, HH:mm"; Azerbaijani and Russian use the numeric local form "dd.MM.yyyy HH:mm". */
+export function formatBakuDateTime(at: Date | string | null | undefined, opts: { seconds?: boolean; locale?: string } = {}): string {
   if (!at) return "—";
   const d = typeof at === "string" ? new Date(at) : at;
-  return DateTime.fromJSDate(d, { zone: BAKU_ZONE }).toFormat(opts.seconds ? "dd MMM yyyy, HH:mm:ss" : "dd MMM yyyy, HH:mm");
+  const numeric = opts.locale === "az" || opts.locale === "ru";
+  return DateTime.fromJSDate(d, { zone: BAKU_ZONE }).toFormat(numeric ? (opts.seconds ? "dd.MM.yyyy HH:mm:ss" : "dd.MM.yyyy HH:mm") : opts.seconds ? "dd MMM yyyy, HH:mm:ss" : "dd MMM yyyy, HH:mm");
 }
 
 export function formatBakuTime(at: Date | string | null | undefined): string {
@@ -77,11 +79,11 @@ export function formatBakuTime(at: Date | string | null | undefined): string {
   return DateTime.fromJSDate(d, { zone: BAKU_ZONE }).toFormat("HH:mm");
 }
 
-export function formatDate(iso: IsoDate | Date | null | undefined): string {
+export function formatDate(iso: IsoDate | Date | null | undefined, locale?: string): string {
   if (!iso) return "—";
   const s = typeof iso === "string" ? iso : fromDbDate(iso);
   if (!s) return "—";
-  return DateTime.fromISO(s, { zone: "utc" }).toFormat("dd MMM yyyy");
+  return DateTime.fromISO(s.slice(0, 10), { zone: "utc" }).toFormat(locale === "az" || locale === "ru" ? "dd.MM.yyyy" : "dd MMM yyyy");
 }
 
 export function hoursBetween(a: Date, b: Date): number {

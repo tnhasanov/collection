@@ -6,6 +6,7 @@ import { outcomeSchema } from "@/server/modules/interactions/outcomeSchema";
 import { computeNextAction, summaryContextFor } from "@/server/modules/interactions/outcomeService";
 import { getContactPolicy } from "@/server/modules/settings/settingsService";
 import { getPromisePolicy } from "@/server/modules/promises/promiseService";
+import { currentLocale } from "@/i18n/locale";
 import { notFound, forbidden } from "@/server/errors";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -17,7 +18,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!interaction) throw notFound("Interaction not found");
     if (interaction.agentUserId !== user.id) throw forbidden("Not your interaction");
     const policy = await getContactPolicy(prisma);
-    return ok(computeNextAction(input, { now: await now(), policy, technicalResult: interaction.technicalResult, customer: await summaryContextFor(prisma, interaction.customerId), promisePolicy: await getPromisePolicy(prisma) }));
+    return ok(computeNextAction(input, { now: await now(), policy, technicalResult: interaction.technicalResult, customer: await summaryContextFor(prisma, interaction.customerId), promisePolicy: await getPromisePolicy(prisma), locale: await currentLocale() }));
   } catch (e) {
     return fail(e);
   }

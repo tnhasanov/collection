@@ -4,18 +4,20 @@ import { BAKU_ZONE, fromDbDate } from "@/server/dates";
 import { dec, money } from "@/server/money";
 import { getAgentContext } from "@/server/modules/dialer/agentSessionService";
 import { getCustomer360 } from "@/server/modules/customers/customerService";
-import { maskNumber, readControlState, type DialerCapabilities } from "@/server/modules/dialer/contract";
+import { maskNumber, readControlState, summarizeControlState, type DialerCapabilities } from "@/server/modules/dialer/contract";
+import { refreshInteractionCommands } from "@/server/modules/dialer/callControlService";
+import type { PrismaClient } from "@/generated/prisma/client";
 import { ATTRIBUTION_RULE_VERSION, attributedCashForAgent } from "@/server/modules/payments/attribution";
 import type { SessionUser } from "@/server/auth/session";
 import { getPromisePolicy, promiseHorizonCheck } from "@/server/modules/promises/promiseService";
 import { bakuBusinessDate } from "@/server/dates";
 
 /** Capabilities reported by the adapter the worker owns; conservative defaults (end only) when no worker has reported. */
-export async function providerCapabilities(db: Db): Promise<{ mute: boolean; hold: boolean; transfer: boolean; end: boolean; manualDial: boolean; reported: boolean; provider: string | null }> {
+export async function providerCapabilities(db: Db): Promise<{ mute: boolean; hold: boolean; transfer: boolean; end: boolean; manualDial: boolean; reported: boolean; provider: string | null; mode: "MOCK" | "REAL" | null }> {
   const hb = await db.workerHeartbeat.findFirst({ where: { capabilitiesJson: { not: null as never } }, orderBy: { lastSeenAt: "desc" } }).catch(() => null);
   const caps = hb?.capabilitiesJson as DialerCapabilities | null | undefined;
-  if (!caps) return { mute: false, hold: false, transfer: false, end: true, manualDial: false, reported: false, provider: null };
-  return { ...caps.callControls, reported: true, provider: caps.provider };
+  if (!caps) return { mute: false, hold: false, transfer: false, end: true, manualDial: false, reported: false, provider: null, mode: null };
+  return { ...caps.callControls, reported: true, provider: caps.provider, mode: caps.mode ?? null };
 }
 
 /** Today's scoped personal metrics (same definitions as the supervisor view; see METRIC_DICTIONARY.md). */
@@ -69,7 +71,10 @@ export async function agentPanels(db: Db, userId: string, now: Date) {
 }
 
 export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, opts: { full: boolean }) {
-  const ctx = await getAgentContext(db, user.id);
+  let ctx = await getAgentContext(db, user.id);
+  // Page load, reload and reconnect reconcile open call commands with the outbox, so a command the worker
+  // dead-lettered or never received is shown as failed (with a recovery action) instead of "pending" forever.
+  if (ctx.interaction?.status === "OPEN" && "$transaction" in db && (await refreshInteractionCommands(db as PrismaClient, ctx.interaction.id, now))) ctx = await getAgentContext(db, user.id);
   const customerId = ctx.reservation?.customerId ?? ctx.interaction?.customerId ?? null;
   const customer = customerId ? await getCustomer360(db, customerId, { now, maskContacts: true, includeEligibility: false }) : null;
   const script = ctx.interaction?.scriptVersionId ? await db.template.findUnique({ where: { id: ctx.interaction.scriptVersionId } }) : customer ? await db.template.findFirst({ where: { kind: "AGENT_SCRIPT", status: "ACTIVE", language: customer.customer.language } }) : null;
@@ -88,7 +93,7 @@ export async function agentDesktopContext(db: Db, user: SessionUser, now: Date, 
       ? { id: ctx.reservation.id, correlationId: ctx.reservation.correlationId, status: ctx.reservation.status, customerId: ctx.reservation.customerId, caseId: ctx.reservation.caseId, campaignCode: ctx.reservation.campaignCode, createdAt: ctx.reservation.createdAt, isManual: ctx.reservation.isManual, maskedNumber: contact ? maskNumber(contact.value) : null, withdrawalStatus: ctx.reservation.withdrawalStatus, attempt: attempt ? { startedAt: attempt.startedAt, ringingAt: attempt.ringingAt, answeredAt: attempt.answeredAt, bridgedAt: attempt.bridgedAt, endedAt: attempt.endedAt, technicalResult: attempt.technicalResult } : null }
       : null,
     interaction: ctx.interaction
-      ? { id: ctx.interaction.id, status: ctx.interaction.status, correlationId: ctx.interaction.correlationId, customerId: ctx.interaction.customerId, startedAt: ctx.interaction.startedAt, connectedAt: ctx.interaction.connectedAt, endedAt: ctx.interaction.endedAt, acwStartedAt: ctx.interaction.acwStartedAt, talkSeconds: ctx.interaction.talkSeconds, ringSeconds: ctx.interaction.ringSeconds, technicalResult: ctx.interaction.technicalResult, wrapUpStatus: ctx.interaction.wrapUpStatus, draft: ctx.interaction.draftJson, draftSavedAt: ctx.interaction.draftSavedAt, scriptVersionId: ctx.interaction.scriptVersionId, identityStatus: ctx.interaction.identityStatus, businessOutcome: ctx.interaction.businessOutcome, savedAt: ctx.interaction.savedAt, providerInteractionRef: ctx.interaction.providerInteractionRef, controlState: readControlState(ctx.interaction.controlState) }
+      ? { id: ctx.interaction.id, status: ctx.interaction.status, correlationId: ctx.interaction.correlationId, customerId: ctx.interaction.customerId, startedAt: ctx.interaction.startedAt, connectedAt: ctx.interaction.connectedAt, endedAt: ctx.interaction.endedAt, acwStartedAt: ctx.interaction.acwStartedAt, talkSeconds: ctx.interaction.talkSeconds, ringSeconds: ctx.interaction.ringSeconds, technicalResult: ctx.interaction.technicalResult, wrapUpStatus: ctx.interaction.wrapUpStatus, draft: ctx.interaction.draftJson, draftSavedAt: ctx.interaction.draftSavedAt, scriptVersionId: ctx.interaction.scriptVersionId, identityStatus: ctx.interaction.identityStatus, businessOutcome: ctx.interaction.businessOutcome, savedAt: ctx.interaction.savedAt, providerInteractionRef: ctx.interaction.providerInteractionRef, controlState: readControlState(ctx.interaction.controlState), control: summarizeControlState(readControlState(ctx.interaction.controlState), now), factualSummary: ctx.interaction.factualSummary, nextAction: ctx.interaction.nextAction }
       : null,
     customer,
     script: script ? { id: script.id, code: script.code, version: script.version, language: script.language, title: script.title, body: script.body as { steps: { key: string; title: string; text: string; requires: string }[]; thirdParty: string; branches: { response: string; route: string }[] } } : null,

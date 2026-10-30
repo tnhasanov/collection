@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { t, type Locale } from "@/i18n/dictionaries";
+import { ot } from "@/i18n/outcomeText";
 
 export const IDENTITY_STATUSES = ["RPC_VERIFIED", "THIRD_PARTY", "VERIFICATION_FAILED", "WRONG_PERSON", "WRONG_NUMBER", "NOT_ESTABLISHED"] as const;
 export const BUSINESS_OUTCOMES = ["PTP", "PARTIAL_COMMITMENT", "NO_COMMITMENT", "CALLBACK_REQUESTED", "ALREADY_PAID_CLAIM", "DISPUTE", "SUPPORT_NEEDED", "REFUSED", "SPECIAL_REFERRAL", "NO_CONVERSATION", "DELINQUENCY_CLOSED", "PTP_EXCEPTION_PROPOSED"] as const;
@@ -77,38 +79,40 @@ export const REASON_LABELS_NP: Record<(typeof NON_PAYMENT_REASONS)[number], stri
   NOT_STATED: "Not stated",
 };
 
-/** Business validation of the structured outcome (beyond shape). Returns human-readable errors. */
-export function validateOutcomeBusinessRules(input: OutcomeInput): string[] {
+/** Business validation of the structured outcome (beyond shape). Returns human-readable errors in the given language. */
+export function validateOutcomeBusinessRules(input: OutcomeInput, locale: Locale = "en"): string[] {
+  const T = (k: string, v?: Record<string, string | number>) => ot(locale, k, v);
+  const outcomeLabel = (o: string) => (locale === "en" ? OUTCOME_LABELS[o as keyof typeof OUTCOME_LABELS] : t(locale, `agent.outcomes.${o}`));
   const errors: string[] = [];
   const rpc = input.identityStatus === "RPC_VERIFIED";
   const conversationOutcomes = ["PTP", "PARTIAL_COMMITMENT", "NO_COMMITMENT", "CALLBACK_REQUESTED", "ALREADY_PAID_CLAIM", "DISPUTE", "SUPPORT_NEEDED", "REFUSED", "DELINQUENCY_CLOSED", "PTP_EXCEPTION_PROPOSED"];
-  if (!rpc && conversationOutcomes.includes(input.businessOutcome)) errors.push(`${OUTCOME_LABELS[input.businessOutcome]} requires a verified right party`);
-  if (input.identityStatus === "THIRD_PARTY" && !["NO_CONVERSATION", "SPECIAL_REFERRAL"].includes(input.businessOutcome)) errors.push("A third-party answer can only be recorded as no conversation or a special-case referral");
-  if (input.identityStatus === "WRONG_NUMBER" && !input.wrongNumber?.contactPointId) errors.push("Select the contact point that is wrong");
-  if (["WRONG_NUMBER", "WRONG_PERSON", "VERIFICATION_FAILED", "NOT_ESTABLISHED"].includes(input.identityStatus) && input.businessOutcome !== "NO_CONVERSATION") errors.push("Without an established right party the business outcome must be 'No conversation'");
-  if (rpc && ["PTP", "PARTIAL_COMMITMENT", "NO_COMMITMENT", "CALLBACK_REQUESTED", "REFUSED", "SUPPORT_NEEDED", "PTP_EXCEPTION_PROPOSED"].includes(input.businessOutcome) && !input.nonPaymentReason) errors.push("Reason for nonpayment is required for this outcome");
-  if (input.nonPaymentReason === "OTHER" && !input.note?.trim()) errors.push("A note is required when the reason is 'Other'");
-  if (input.businessOutcome === "SPECIAL_REFERRAL" && !input.note?.trim()) errors.push("A note is required for a special-case referral");
+  if (!rpc && conversationOutcomes.includes(input.businessOutcome)) errors.push(T("v.requiresRpc", { outcome: outcomeLabel(input.businessOutcome) }));
+  if (input.identityStatus === "THIRD_PARTY" && !["NO_CONVERSATION", "SPECIAL_REFERRAL"].includes(input.businessOutcome)) errors.push(T("v.thirdPartyLimited"));
+  if (input.identityStatus === "WRONG_NUMBER" && !input.wrongNumber?.contactPointId) errors.push(T("v.wrongNumberPick"));
+  if (["WRONG_NUMBER", "WRONG_PERSON", "VERIFICATION_FAILED", "NOT_ESTABLISHED"].includes(input.identityStatus) && input.businessOutcome !== "NO_CONVERSATION") errors.push(T("v.noPartyNoConversation"));
+  if (rpc && ["PTP", "PARTIAL_COMMITMENT", "NO_COMMITMENT", "CALLBACK_REQUESTED", "REFUSED", "SUPPORT_NEEDED", "PTP_EXCEPTION_PROPOSED"].includes(input.businessOutcome) && !input.nonPaymentReason) errors.push(T("v.reasonRequired"));
+  if (input.nonPaymentReason === "OTHER" && !input.note?.trim()) errors.push(T("v.otherNote"));
+  if (input.businessOutcome === "SPECIAL_REFERRAL" && !input.note?.trim()) errors.push(T("v.specialNote"));
   if (["PTP", "PARTIAL_COMMITMENT", "PTP_EXCEPTION_PROPOSED"].includes(input.businessOutcome)) {
-    if (!input.ptp) errors.push("Promise details are required");
+    if (!input.ptp) errors.push(T("v.promiseDetails"));
     else {
-      if (Number(input.ptp.amount) <= 0) errors.push("Promise amount must be positive");
-      if (!input.ptp.customerConfirmed) errors.push("The customer must explicitly confirm the promise");
+      if (Number(input.ptp.amount) <= 0) errors.push(T("v.promisePositive"));
+      if (!input.ptp.customerConfirmed) errors.push(T("v.promiseConfirm"));
     }
   }
-  if (input.businessOutcome === "CALLBACK_REQUESTED" && !input.callback) errors.push("Callback details are required");
-  if (input.businessOutcome === "ALREADY_PAID_CLAIM" && !input.paidClaim) errors.push("Claim details are required (fields may be left empty if unknown)");
-  if (input.businessOutcome === "DISPUTE" && !input.dispute) errors.push("Dispute reason is required");
-  if (input.businessOutcome === "SUPPORT_NEEDED" && !input.support) errors.push("Support referral details are required");
-  if (input.businessOutcome === "SPECIAL_REFERRAL" && !input.support) errors.push("Referral type and reason are required");
-  if (input.support?.type === "DECEASED_LEGAL" && !input.support.reporterRelation) errors.push("Record who reported the death (relation to the customer); the report stays unconfirmed until verified");
-  if (input.technicalResultCorrection && !input.technicalResultCorrection.reason.trim()) errors.push("A technical-result correction needs a reason");
-  if (input.customerStatement && (input.customerStatement.indicativePaymentDate || input.customerStatement.indicativeAmount) && ["PTP", "PARTIAL_COMMITMENT"].includes(input.businessOutcome)) errors.push("An indicative payment statement cannot accompany a confirmed promise; record either a confirmed promise or a non-binding statement");
-  if (input.customerStatement && (input.customerStatement.indicativePaymentDate || input.customerStatement.indicativeAmount) && !["NO_COMMITMENT", "REFUSED", "CALLBACK_REQUESTED"].includes(input.businessOutcome)) errors.push("Indicative payment statements are recorded only with 'No commitment', 'Refused' or 'Callback'");
+  if (input.businessOutcome === "CALLBACK_REQUESTED" && !input.callback) errors.push(T("v.callbackDetails"));
+  if (input.businessOutcome === "ALREADY_PAID_CLAIM" && !input.paidClaim) errors.push(T("v.claimDetails"));
+  if (input.businessOutcome === "DISPUTE" && !input.dispute) errors.push(T("v.disputeReason"));
+  if (input.businessOutcome === "SUPPORT_NEEDED" && !input.support) errors.push(T("v.supportDetails"));
+  if (input.businessOutcome === "SPECIAL_REFERRAL" && !input.support) errors.push(T("v.referralDetails"));
+  if (input.support?.type === "DECEASED_LEGAL" && !input.support.reporterRelation) errors.push(T("v.deceasedReporter"));
+  if (input.technicalResultCorrection && !input.technicalResultCorrection.reason.trim()) errors.push(T("v.correctionReason"));
+  if (input.customerStatement && (input.customerStatement.indicativePaymentDate || input.customerStatement.indicativeAmount) && ["PTP", "PARTIAL_COMMITMENT"].includes(input.businessOutcome)) errors.push(T("v.statementWithPromise"));
+  if (input.customerStatement && (input.customerStatement.indicativePaymentDate || input.customerStatement.indicativeAmount) && !["NO_COMMITMENT", "REFUSED", "CALLBACK_REQUESTED"].includes(input.businessOutcome)) errors.push(T("v.statementOnlyWith"));
   for (const flag of input.secondaryFlags ?? []) {
-    if (flag === "DISPUTE_RAISED" && input.businessOutcome !== "DISPUTE" && !input.note?.trim()) errors.push("A short factual note is required when a dispute is flagged alongside another outcome");
-    if (flag === "SUPPORT_REFERRAL_REQUESTED" && input.businessOutcome !== "SUPPORT_NEEDED" && !input.note?.trim()) errors.push("A short factual note is required when a support referral is flagged alongside another outcome");
-    if (!rpc && (flag === "DISPUTE_RAISED" || flag === "SUPPORT_REFERRAL_REQUESTED")) errors.push("Dispute/support flags require a verified right party");
+    if (flag === "DISPUTE_RAISED" && input.businessOutcome !== "DISPUTE" && !input.note?.trim()) errors.push(T("v.flagDisputeNote"));
+    if (flag === "SUPPORT_REFERRAL_REQUESTED" && input.businessOutcome !== "SUPPORT_NEEDED" && !input.note?.trim()) errors.push(T("v.flagSupportNote"));
+    if (!rpc && (flag === "DISPUTE_RAISED" || flag === "SUPPORT_REFERRAL_REQUESTED")) errors.push(T("v.flagsRequireRpc"));
   }
-  return errors;
+  return [...new Set(errors)];
 }

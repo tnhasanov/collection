@@ -146,8 +146,18 @@ export async function manualReserve(prisma: PrismaClient, params: { userId: stri
 export async function expireStaleReservations(prisma: PrismaClient, now: Date, adapter: DialerAdapter) {
   const stale = await prisma.routingReservation.findMany({ where: { status: { in: ["PENDING", "AUTHORIZED", "DIALING"] }, expiresAt: { lt: now } } });
   const expired: string[] = [];
+  let hydrated = false;
   for (const r of stale) {
-    const providerCall = await adapter.getInteraction(`mock-call-${r.correlationId}`);
+    // A timeout alone never ends a call: an interaction already opened for the reservation, or a provider view that
+    // still shows the call, keeps it. An unknown provider answer is re-checked against persisted facts first.
+    if (await prisma.interaction.findFirst({ where: { reservationId: r.id, status: "OPEN" }, select: { id: true } })) continue;
+    let providerCall = await adapter.getInteraction(`mock-call-${r.correlationId}`);
+    if (providerCall.state === "UNKNOWN" && !hydrated && adapter instanceof MockDialerAdapter) {
+      const { hydrateMockAdapter } = await import("@/server/modules/dialer/providerReconciliation");
+      await hydrateMockAdapter(prisma, adapter);
+      hydrated = true;
+      providerCall = await adapter.getInteraction(`mock-call-${r.correlationId}`);
+    }
     if (providerCall.state === "CONNECTED") continue;
     await prisma.routingReservation.update({ where: { id: r.id }, data: { status: "EXPIRED", releasedAt: now, releaseReason: "PROVIDER_TIMEOUT" } });
     await releaseWorkItem(prisma, r.workItemId, "RESERVATION_EXPIRED", now);

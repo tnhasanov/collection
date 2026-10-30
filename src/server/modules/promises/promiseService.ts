@@ -63,6 +63,11 @@ export async function createPromise(db: Db, input: CreatePromiseInput) {
   if (!horizon.ok && !input.policyException) throw conflict(`Deadline is outside the promise horizon (max ${promisePolicy.maxHorizonDays} days, until ${horizon.maxDate}); record a proposed exception instead of a promise`, { code: "PROMISE_HORIZON", maxDate: horizon.maxDate });
   const loans = await db.loan.findMany({ where: { id: { in: input.coveredLoanIds }, customerId: input.customerId } });
   if (loans.length !== input.coveredLoanIds.length || loans.length === 0) throw badRequest("Covered loans must belong to the customer");
+  if (loans.some((l) => l.status !== "ACTIVE")) throw badRequest("Covered loans must be active");
+  // A promise can never exceed what is owed on the covered loans (outstanding principal incl. overdue principal,
+  // overdue interest, fees and accrued interest).
+  const owed = loans.reduce((s, l) => s.plus(l.principalOutstanding).plus(l.overdueInterest).plus(l.feesDue).plus(l.accruedInterestNotDue), money("0"));
+  if (amount.greaterThan(owed)) throw badRequest(`Promise amount exceeds the total owed on the covered loans (${owed.toFixed(2)} AZN)`, { code: "PROMISE_AMOUNT_TOO_HIGH", max: owed.toFixed(2) });
   const policy = await getContactPolicy(db);
   const overlapping = await db.promise.findMany({ where: { customerId: input.customerId, status: { in: [...ACTIVE_PROMISE_STATUSES] } } });
   const clash = overlapping.filter((p) => p.coveredLoanIds.some((id) => input.coveredLoanIds.includes(id)));

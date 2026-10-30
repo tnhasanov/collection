@@ -15,6 +15,8 @@ import { PROVIDER_DISPOSITION_MAP } from "@/server/modules/dialer/contract";
 import { outcomeSchema, validateOutcomeBusinessRules, type DraftInput, type OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
 import { buildFactualSummary, deriveCoverage, NEXT_ACTION_LABELS, type Coverage, type SummaryCustomerContext } from "@/server/modules/interactions/summary";
 import type { NextActionKind } from "@/generated/prisma/enums";
+import { ot } from "@/i18n/outcomeText";
+import type { Locale } from "@/i18n/dictionaries";
 
 export interface NextActionPreview {
   nextAction: NextActionKind;
@@ -28,6 +30,8 @@ export interface NextActionPreview {
   referral: string | null;
   customerWide: boolean;
   errors: string[];
+  /** Notices that do not block saving (e.g. a callback moved into permitted hours). */
+  warnings: string[];
   /** Derived from the promise amount against the covered obligations (blueprint: full/partial coverage is derived, not chosen). */
   derivedOutcome: OutcomeInput["businessOutcome"];
   coverage: Coverage;
@@ -37,8 +41,21 @@ export interface NextActionPreview {
 }
 
 /** Pure next-action computation shared by the preview endpoint and the save path. */
-export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null; customer?: SummaryCustomerContext | null; promisePolicy?: PromisePolicy | null }): NextActionPreview {
-  const errors = validateOutcomeBusinessRules(input);
+export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy: ContactPolicyConfig; technicalResult: string | null; customer?: SummaryCustomerContext | null; promisePolicy?: PromisePolicy | null; locale?: Locale }): NextActionPreview {
+  const L = ctx.locale ?? "en";
+  const T = (k: string, v?: Record<string, string | number>) => ot(L, k, v);
+  const errors = validateOutcomeBusinessRules(input, L);
+  const warnings: string[] = [];
+  // Promise amount and loan coverage are validated against the fresh bank snapshot (the save path re-checks).
+  if (input.ptp && ["PTP", "PARTIAL_COMMITMENT", "PTP_EXCEPTION_PROPOSED"].includes(input.businessOutcome) && ctx.customer) {
+    const loans = ctx.customer.loans.filter((l) => input.ptp!.coveredLoanIds.includes(l.id));
+    if (loans.length === 0 || loans.length !== input.ptp.coveredLoanIds.length) errors.push(T("v.promiseLoans"));
+    else {
+      const owed = loans.reduce((s, l) => s + Number(l.totalOwed ?? l.totalOverdue), 0);
+      if (Number(input.ptp.amount) > owed + 0.005) errors.push(T("v.promiseTooHigh", { max: owed.toFixed(2) }));
+      if (input.businessOutcome !== "PTP_EXCEPTION_PROPOSED" && loans.every((l) => Number(l.totalOverdue) <= 0) && Number(ctx.customer.overdueDueNow) <= 0) errors.push(T("v.nothingOverdue"));
+    }
+  }
   const { coverage, coveredOverdue, derivedOutcome } = deriveCoverage(input, ctx.customer ?? null);
   const rpc = input.identityStatus === "RPC_VERIFIED";
   const cooldownUntil = rpc ? rpcCooldownEnd(ctx.now, ctx.policy) : null;
@@ -60,7 +77,7 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
         nextAction = "MONITOR_PTP";
         if (input.ptp && ctx.promisePolicy && isIsoDate(input.ptp.deadlineDate)) {
           const h = promiseHorizonCheck(input.ptp.deadlineDate, ctx.now, ctx.promisePolicy);
-          if (!h.ok) errors.push(`The agreed date is outside the promise policy (maximum ${ctx.promisePolicy.maxHorizonDays} days, until ${h.maxDate}); record it as a promise-date exception for approval`);
+          if (!h.ok) errors.push(T("v.horizon", { days: ctx.promisePolicy.maxHorizonDays, max: h.maxDate }));
         }
         const deadline = input.ptp && isIsoDate(input.ptp.deadlineDate) ? bakuEndOfDay(input.ptp.deadlineDate) : ctx.now;
         ptpProtectionUntil = ptpProtectionEnd(deadline, ctx.now, ctx.policy);
@@ -77,7 +94,7 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
         nextAction = "ELIGIBLE_CALLBACK";
         const requested = input.callback ? new Date(input.callback.dueAt) : ctx.now;
         callbackAt = Number.isNaN(requested.getTime()) ? null : nextPermittedTime(requested, ctx.policy);
-        if (callbackAt && callbackAt.getTime() !== requested.getTime()) errors.push("Requested callback time is outside permitted hours; the next permitted time will be used");
+        if (callbackAt && callbackAt.getTime() !== requested.getTime()) warnings.push(T("w.callbackMoved"));
         summary = `Scheduled callback at ${callbackAt?.toISOString() ?? "n/a"} (customer-requested exception, policy re-checked at dispatch)`;
         break;
       }
@@ -88,23 +105,23 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
         break;
       case "DISPUTE":
         nextAction = "DISPUTE_REVIEW";
-        referral = "Dispute case to specialist review; routine calls blocked while open";
+        referral = T("r.dispute");
         summary = "Create an owned dispute case and block routine outreach until resolved";
         break;
       case "SUPPORT_NEEDED":
         nextAction = "SUPPORT_REFERRAL";
-        referral = "Repayment support assessment (restricted details)";
+        referral = T("r.support");
         summary = "Create an owned support case; approved support assessment; no unapproved contract change";
         break;
       case "SPECIAL_REFERRAL":
         nextAction = "SPECIAL_REFERRAL";
-        referral = input.support?.type === "DECEASED_LEGAL" ? "Death reported (unconfirmed): verification task for a lead/head; routine contact stops until the report is confirmed or rejected" : "Special-case handling (legal / deceased notification)";
+        referral = input.support?.type === "DECEASED_LEGAL" ? T("r.deceased") : T("r.special");
         summary = input.support?.type === "DECEASED_LEGAL" ? "Deceased notification recorded as REPORTED; verification required before any status change" : "Special-case referral; no routine calls";
         break;
       case "DELINQUENCY_CLOSED": {
         nextAction = "COOLDOWN";
         const overdue = ctx.customer ? Number(ctx.customer.overdueDueNow) : 0;
-        if (overdue > 0) errors.push(`Overdue is still ${ctx.customer!.overdueDueNow} AZN on the fresh snapshot; "Overdue cleared" can be recorded only after the verified posting arrives`);
+        if (overdue > 0) errors.push(T("v.stillOverdue", { amount: ctx.customer!.overdueDueNow }));
         summary = "Arrears cleared by a verified core posting during the conversation; the collection episode closes (Gecikmə bağlanıb). No promise, reminder or retry.";
         digitalReminders = "None: no arrears remain";
         break;
@@ -113,9 +130,9 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
         nextAction = "COOLDOWN";
         if (input.ptp && ctx.promisePolicy) {
           const h = promiseHorizonCheck(input.ptp.deadlineDate as never, ctx.now, ctx.promisePolicy);
-          if (h.ok) errors.push(`The proposed date is within the promise policy (until ${h.maxDate}); record a normal promise instead of an exception`);
+          if (h.ok) errors.push(T("v.exceptionInside", { max: h.maxDate }));
         }
-        referral = "Promise-date exception sent to a team lead for approval; no promise, reminder or protection exists until it is approved";
+        referral = T("r.exception");
         summary = `Verified-contact cooldown (${ctx.policy.rpcCooldownHours}h) while the proposed exception awaits a decision`;
         digitalReminders = "No PTP reminder until the exception is approved";
         break;
@@ -125,7 +142,7 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
     }
   } else if (input.businessOutcome === "SPECIAL_REFERRAL") {
     nextAction = "SPECIAL_REFERRAL";
-    referral = "Special-case handling";
+    referral = input.support?.type === "DECEASED_LEGAL" ? T("r.deceased") : T("r.specialThirdParty");
     summary = "Special-case referral recorded from a third party; no routine calls pending review";
   } else if (ctx.technicalResult && ctx.technicalResult !== "ANSWERED") {
     nextAction = "POLICY_RETRY";
@@ -133,17 +150,19 @@ export function computeNextAction(input: OutcomeInput, ctx: { now: Date; policy:
   const blocked = [cooldownUntil, ptpProtectionUntil, reconciliationHoldUntil].filter((d): d is Date => !!d);
   const routineCallsBlockedUntil = blocked.length ? new Date(Math.max(...blocked.map((d) => d.getTime()))) : null;
   const policyVersion = `${ctx.policy.code}/${ctx.policy.version}`;
-  const factualSummary = buildFactualSummary({ ...input, businessOutcome: derivedOutcome }, { technicalResult: ctx.technicalResult, customer: ctx.customer ?? null, policyVersion, nextActionLabel: NEXT_ACTION_LABELS[nextAction] ?? nextAction.toLowerCase(), routineCallsBlockedUntil, callbackAt, reconciliationHoldUntil });
-  return { nextAction, summary, routineCallsBlockedUntil, cooldownUntil, ptpProtectionUntil, callbackAt, reconciliationHoldUntil, digitalReminders, referral, customerWide: true, errors, derivedOutcome, coverage, coveredOverdue, factualSummary, policyVersion };
+  const factualSummary = buildFactualSummary({ ...input, businessOutcome: derivedOutcome }, { technicalResult: ctx.technicalResult, customer: ctx.customer ?? null, policyVersion, nextActionLabel: L === "en" ? NEXT_ACTION_LABELS[nextAction] ?? nextAction.toLowerCase() : ot(L, `na.${nextAction}`), routineCallsBlockedUntil, callbackAt, reconciliationHoldUntil, locale: L });
+  return { nextAction, summary, routineCallsBlockedUntil, cooldownUntil, ptpProtectionUntil, callbackAt, reconciliationHoldUntil, digitalReminders, referral, customerWide: true, errors: [...new Set(errors)], warnings, derivedOutcome, coverage, coveredOverdue, factualSummary, policyVersion };
 }
 
 /** Bank-verified facts needed for coverage derivation and the factual summary. */
 export async function summaryContextFor(db: Db, customerId: string): Promise<SummaryCustomerContext | null> {
-  const c = await db.customer.findUnique({ where: { id: customerId }, include: { loans: { where: { status: "ACTIVE" }, select: { id: true, coreLoanId: true, totalOverdue: true, balancesAsOf: true } } } });
+  const c = await db.customer.findUnique({ where: { id: customerId }, include: { loans: { where: { status: "ACTIVE" }, select: { id: true, coreLoanId: true, totalOverdue: true, balancesAsOf: true, principalOutstanding: true, overdueInterest: true, feesDue: true, accruedInterestNotDue: true } } } });
   if (!c) return null;
   const overdue = c.loans.reduce((s, l) => s + Number(l.totalOverdue), 0);
   const asOf = c.loans.map((l) => l.balancesAsOf).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-  return { displayName: c.displayName, overdueDueNow: overdue.toFixed(2), balancesAsOf: asOf, loans: c.loans.map((l) => ({ id: l.id, coreLoanId: l.coreLoanId, totalOverdue: l.totalOverdue.toString() })) };
+  // Total owed per loan = outstanding principal (includes overdue principal) + overdue interest + fees + accrued interest.
+  const owed = (l: (typeof c.loans)[number]) => (Number(l.principalOutstanding) + Number(l.overdueInterest) + Number(l.feesDue) + Number(l.accruedInterestNotDue)).toFixed(2);
+  return { displayName: c.displayName, overdueDueNow: overdue.toFixed(2), balancesAsOf: asOf, loans: c.loans.map((l) => ({ id: l.id, coreLoanId: l.coreLoanId, totalOverdue: l.totalOverdue.toString(), totalOwed: owed(l) })) };
 }
 
 export async function saveDraft(db: Db, params: { interactionId: string; actorUserId: string; draft: DraftInput; now: Date }) {
@@ -159,7 +178,7 @@ export async function saveDraft(db: Db, params: { interactionId: string; actorUs
  * Idempotent: the same idempotency key returns the already saved result; a second click never duplicates
  * a PTP, task, cooldown or provider disposition.
  */
-export async function saveOutcome(db: Db, params: { interactionId: string; actorUserId: string; input: unknown; now: Date }) {
+export async function saveOutcome(db: Db, params: { interactionId: string; actorUserId: string; input: unknown; now: Date; locale?: Locale }) {
   const input = outcomeSchema.parse(params.input);
   const interaction = await db.interaction.findUnique({ where: { id: params.interactionId }, include: { reservation: true, customer: { include: { contactPoints: true } } } });
   if (!interaction) throw notFound("Interaction not found");
@@ -172,9 +191,8 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   const policy = await getContactPolicy(db);
   const summaryCtx = await summaryContextFor(db, interaction.customerId);
   const promisePolicy = await getPromisePolicy(db);
-  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult, customer: summaryCtx, promisePolicy });
-  const hardErrors = preview.errors.filter((e) => !e.startsWith("Requested callback time is outside"));
-  if (hardErrors.length) throw unprocessable("Outcome is not valid", { errors: hardErrors });
+  const preview = computeNextAction(input, { now: params.now, policy, technicalResult: interaction.technicalResult, customer: summaryCtx, promisePolicy, locale: params.locale });
+  if (preview.errors.length) throw unprocessable("Outcome is not valid", { errors: preview.errors, code: "OUTCOME_INVALID" });
   // Coverage (full/partial) is derived from bank-verified obligations, never chosen by the agent.
   input.businessOutcome = preview.derivedOutcome;
 
@@ -183,8 +201,10 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
   const acwSeconds = interaction.acwStartedAt ? Math.max(0, Math.round((params.now.getTime() - interaction.acwStartedAt.getTime()) / 1000)) : null;
   const detail: Record<string, unknown> = { summary: preview.summary, routineCallsBlockedUntil: preview.routineCallsBlockedUntil, cooldownUntil: preview.cooldownUntil, ptpProtectionUntil: preview.ptpProtectionUntil, callbackAt: preview.callbackAt, reconciliationHoldUntil: preview.reconciliationHoldUntil };
 
-  const saved = await db.interaction.update({
-    where: { id: interaction.id },
+  // Atomic claim: only a DRAFT interaction can be saved, so a second click, a second tab or a retried request can
+  // never run the effects twice. The loser of a race sees the saved row and gets the duplicate or conflict answer.
+  const claim = await db.interaction.updateMany({
+    where: { id: interaction.id, status: "DRAFT" },
     data: {
       idempotencyKey: input.idempotencyKey,
       identityStatus: input.identityStatus,
@@ -205,6 +225,12 @@ export async function saveOutcome(db: Db, params: { interactionId: string; actor
       draftJson: Prisma.DbNull,
     },
   });
+  if (claim.count === 0) {
+    const current = await db.interaction.findUniqueOrThrow({ where: { id: interaction.id } });
+    if (current.idempotencyKey === input.idempotencyKey) return { interaction: current, duplicate: true, preview: null as NextActionPreview | null };
+    throw conflict("Outcome already saved; use an audited correction to change it", { code: "ALREADY_SAVED" });
+  }
+  const saved = await db.interaction.findUniqueOrThrow({ where: { id: interaction.id } });
   if (input.technicalResultCorrection && interaction.dialAttemptId) {
     await db.dialAttempt.update({ where: { id: interaction.dialAttemptId }, data: { correctedResult: input.technicalResultCorrection.result, correctionReason: input.technicalResultCorrection.reason } });
   }

@@ -72,15 +72,19 @@ export async function refreshWorkItemEligibility(db: Db, workItemId: string, now
   }
   const dueCallback = wi.type === "CALLBACK" ? { dueAt: wi.dueAt ?? now, customerRequested: wi.reason?.startsWith("CUSTOMER_REQUESTED") ?? false } : null;
   const { decision, contactPointId } = await evaluateCustomerEligibility(db, wi.customerId, { channel: "VOICE", now, dueCallback, hasSpareCapacity: opts.hasSpareCapacity, campaignCode: wi.campaignCode });
-  const blockingOnlyTiming = decision.reasonCodes.every((c) => ["PERMITTED_HOURS", "RETRY_TIMING", "CALLBACK_DUE", "DAILY_ATTEMPT_CAP", "WEEKLY_ATTEMPT_CAP", "RPC_COOLDOWN", "PTP_PROTECTION", "NO_PAID_CLAIM_HOLD", "NO_SUPPORT_HOLD"].includes(c));
+  // Re-check when the EARLIEST timed blocker ends, not the latest: once a customer-requested callback becomes due the
+  // cooldown exception applies, so waiting for the cooldown end would leave stale reasons and an idle callback.
+  // Re-checking earlier never bypasses policy; the evaluation decides again at that time.
+  const blockerTimes = decision.checks.filter((c) => !c.passed && c.blockedUntil).map((c) => c.blockedUntil!.getTime());
+  const recheckAt = blockerTimes.length ? new Date(Math.min(...blockerTimes)) : null;
+  void contactPointId;
   return db.workItem.update({
     where: { id: wi.id },
     data: {
       status: decision.eligible ? "ELIGIBLE" : "DEFERRED",
       deferredReasons: decision.reasonCodes,
-      nextEligibleAt: decision.eligible ? now : decision.nextAllowedAt ?? (blockingOnlyTiming ? null : null),
+      nextEligibleAt: decision.eligible ? now : recheckAt,
       reason: wi.reason,
-      ...(contactPointId ? {} : {}),
     },
   });
 }

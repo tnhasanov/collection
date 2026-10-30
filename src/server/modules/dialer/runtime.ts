@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { Db } from "@/server/db";
-import { readControlState, type DialerAdapter, type NormalizedProviderEvent } from "@/server/modules/dialer/contract";
-import { MOCK_PROVIDER } from "@/server/modules/dialer/mockDialerAdapter";
+import { readControlState, type CallControlAction, type DialerAdapter, type NormalizedProviderEvent } from "@/server/modules/dialer/contract";
+import { MOCK_PROVIDER, MockDialerAdapter } from "@/server/modules/dialer/mockDialerAdapter";
+import { applyCommandReceipt, completeEndCommands, completeReconcile, failCommand } from "@/server/modules/dialer/callControlService";
 import { applyConfirmedState } from "@/server/modules/dialer/agentSessionService";
 import { ingestProviderEvent } from "@/server/modules/dialer/providerEventService";
 import { releaseWorkItem } from "@/server/modules/work/workItemService";
@@ -116,48 +117,79 @@ export async function handleDialerOutbox(prisma: PrismaClient, adapter: DialerAd
       return { done: false, note: "Withdrawal unknown; retry/reconcile" };
     }
     case "dialer.callControl": {
-      const action = String(payload.action) as "MUTE" | "UNMUTE" | "HOLD" | "RESUME" | "TRANSFER" | "END";
-      const interaction = await prisma.interaction.findUnique({ where: { id: String(payload.interactionId) }, include: { reservation: true } });
+      const action = String(payload.action) as CallControlAction;
+      const key = message.idempotencyKey;
+      if (!payload.interactionId) {
+        // Provider recycle of withdrawn work: END the provider call directly (no interaction exists for it).
+        const ref = payload.providerInteractionRef ? String(payload.providerInteractionRef) : null;
+        if (!ref) return { done: true, note: "No interaction or provider reference" };
+        const receipt = await adapter.requestCallControl({ idempotencyKey: key, correlationId: String(payload.correlationId ?? message.correlationId ?? ""), providerInteractionRef: ref, action, agentRef: String(payload.agentRef ?? "") });
+        await recordReceipt(prisma, `callControl.${action}`, key, payload, receipt, message.correlationId, now);
+        return receipt.status === "UNKNOWN" ? { done: false, note: receipt.message } : { done: true, note: receipt.status };
+      }
+      const interactionId = String(payload.interactionId);
+      const interaction = await prisma.interaction.findUnique({ where: { id: interactionId } });
       if (!interaction) return { done: true, note: "Interaction gone" };
-      const state = readControlState(interaction.controlState);
-      const pendingLeft = state.pending.filter((p) => p.key !== message.idempotencyKey);
+      if (interaction.status !== "OPEN") {
+        // The call already ended (customer hung up, reconciliation): nothing to send; open commands were closed.
+        await completeEndCommands(prisma, interactionId, now, "PROVIDER");
+        return { done: true, note: `Interaction ${interaction.status}; no provider command sent` };
+      }
       if (!interaction.providerInteractionRef) {
-        await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: { ...state, pending: pendingLeft, lastError: `No provider interaction reference for ${action}`, lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
+        await failCommand(prisma, interactionId, key, `No provider call reference for ${action}`, now);
         return { done: true, note: "No provider interaction" };
       }
-      if ((await adapter.getInteraction(interaction.providerInteractionRef)).state === "UNKNOWN") {
+      const ref = interaction.providerInteractionRef;
+      if ((await adapter.getInteraction(ref)).state === "UNKNOWN") {
         // The call may have been authorized by another process; rebuild the provider view from persisted facts first.
         const { hydrateMockAdapter } = await import("@/server/modules/dialer/providerReconciliation");
         await hydrateMockAdapter(prisma, adapter);
       }
-      const receipt = await adapter.requestCallControl({ idempotencyKey: message.idempotencyKey, correlationId: interaction.correlationId, providerInteractionRef: interaction.providerInteractionRef, action, agentRef: String(payload.agentRef) });
-      await recordReceipt(prisma, `callControl.${action}`, message.idempotencyKey, payload, receipt, interaction.correlationId, now);
-      // Confirmed / rejected / unknown are three different truths for the agent and the supervisor.
-      if (receipt.status === "CONFIRMED") {
-        const provider = await adapter.getInteraction(interaction.providerInteractionRef);
-        const next = { ...state, pending: pendingLeft, muted: action === "MUTE" ? true : action === "UNMUTE" ? false : (provider.muted ?? state.muted), held: action === "HOLD" ? true : action === "RESUME" ? false : (provider.held ?? state.held), lastError: null, lastErrorAt: null, providerState: provider.state, updatedAt: now.toISOString() };
-        await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: next as never } });
-        if (action === "END") {
-          // The provider reports the end of the call as an event; the mock synthesizes it here.
-          const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${interaction.providerInteractionRef}:call.ended`, eventType: "call.ended", occurredAt: now.toISOString(), agentRef: String(payload.agentRef), providerInteractionRef: interaction.providerInteractionRef, correlationId: interaction.correlationId, payload: { technicalResult: "ANSWERED", endedBy: "AGENT" } };
-          await scheduleEvents([{ delayMs: 0, event: ev }]);
-        }
-        return { done: true, note: receipt.status };
+      const receipt = await adapter.requestCallControl({ idempotencyKey: key, correlationId: interaction.correlationId, providerInteractionRef: ref, action, agentRef: String(payload.agentRef ?? "") });
+      await recordReceipt(prisma, `callControl.${action}`, key, payload, receipt, interaction.correlationId, now);
+      const provider = await adapter.getInteraction(ref);
+      // An END refused because the provider already ended the call is not a failure: the provider's end is applied.
+      const alreadyEnded = action === "END" && receipt.status === "REJECTED" && provider.state === "ENDED";
+      await applyCommandReceipt(prisma, { interactionId, key, action, receipt: alreadyEnded ? { ...receipt, status: "CONFIRMED" } : receipt, provider, now });
+      if (action === "END" && (receipt.status === "CONFIRMED" || alreadyEnded) && adapter instanceof MockDialerAdapter) {
+        // The mock provider does not emit events by itself; it reports the end it just applied. A real adapter (3CX)
+        // delivers call.ended through its own event subscription, and nothing here invents one.
+        const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${ref}:call.ended`, eventType: "call.ended", occurredAt: provider.endedAt ?? now.toISOString(), agentRef: String(payload.agentRef ?? provider.agentRef ?? ""), providerInteractionRef: ref, correlationId: interaction.correlationId, payload: { technicalResult: provider.technicalResult ?? "ANSWERED", endedBy: alreadyEnded ? "PROVIDER" : "AGENT" } };
+        await scheduleEvents([{ delayMs: 0, event: ev }]);
       }
-      const detail = `${action} ${receipt.status.toLowerCase()} by the provider${receipt.message ? `: ${receipt.message}` : ""}`;
-      await prisma.interaction.update({ where: { id: interaction.id }, data: { controlState: { ...state, pending: pendingLeft, lastError: detail, lastErrorAt: now.toISOString(), updatedAt: now.toISOString() } as never } });
-      if (action === "END" && interaction.status === "OPEN") {
-        // A refused or unanswered END leaves the call open at the provider: the agent sees a durable error and the
-        // supervisor owns an exception; the reconciliation job resolves it against provider state or by force-end.
-        await prisma.exceptionCase.upsert({
-          where: { dedupKey: `CALL_CONTROL_FAILURE:${interaction.id}` },
-          create: { dedupKey: `CALL_CONTROL_FAILURE:${interaction.id}`, type: "CALL_CONTROL_FAILURE", severity: "CRITICAL", customerId: interaction.customerId, caseId: interaction.caseId, title: `Provider ${receipt.status === "REJECTED" ? "rejected" : "did not answer"} END for an open call; agent cannot wrap up until reconciled`, evidence: { interactionId: interaction.id, correlationId: interaction.correlationId, receipt, agentUserId: interaction.agentUserId } as never },
-          update: { lastSeenAt: now, occurrences: { increment: 1 }, status: "OPEN" },
-        });
-        await appendAudit(prisma, { actorService: "cti-adapter", action: "call.control.end_failed", objectType: "Interaction", objectId: interaction.id, customerId: interaction.customerId, correlationId: interaction.correlationId, blocked: true, changes: { receipt } });
+      // UNKNOWN is retried by the outbox with the same key until it answers or is dead-lettered (then FAILED).
+      return receipt.status === "UNKNOWN" ? { done: false, note: `${action} unknown: ${receipt.message ?? ""}` } : { done: true, note: alreadyEnded ? "Provider had already ended the call" : receipt.status };
+    }
+    case "dialer.reconcileInteraction": {
+      const interactionId = String(payload.interactionId);
+      const key = message.idempotencyKey;
+      const interaction = await prisma.interaction.findUnique({ where: { id: interactionId } });
+      if (!interaction) return { done: true, note: "Interaction gone" };
+      if (interaction.status !== "OPEN") {
+        await completeReconcile(prisma, interactionId, key, `Call already ${interaction.status === "DRAFT" ? "ended" : interaction.status.toLowerCase()}`, "ENDED", now);
+        return { done: true };
       }
-      // UNKNOWN controls are retried by the outbox with backoff (same idempotency key) until dead-lettered; REJECTED is final.
-      return receipt.status === "UNKNOWN" ? { done: false, note: detail } : { done: true, note: detail };
+      const ref = interaction.providerInteractionRef ?? `mock-call-${interaction.correlationId}`;
+      let provider = await adapter.getInteraction(ref);
+      if (provider.state === "UNKNOWN") {
+        const { hydrateMockAdapter } = await import("@/server/modules/dialer/providerReconciliation");
+        await hydrateMockAdapter(prisma, adapter);
+        provider = await adapter.getInteraction(ref);
+      }
+      if (provider.state === "ENDED") {
+        // Truthful: the provider's own end time and result are applied, as if its event had arrived.
+        const ev: NormalizedProviderEvent = { provider: MOCK_PROVIDER, providerEventId: `${ref}:call.ended`, eventType: "call.ended", occurredAt: provider.endedAt ?? now.toISOString(), agentRef: provider.agentRef, providerInteractionRef: ref, correlationId: interaction.correlationId, payload: { technicalResult: provider.technicalResult ?? "ANSWERED", endedBy: "RECONCILIATION" } };
+        await ingestProviderEvent(prisma, ev, now, adapter);
+        await completeReconcile(prisma, interactionId, key, "Provider reports the call as ended; applied", "ENDED", now);
+        return { done: true };
+      }
+      if (provider.state === "UNKNOWN") {
+        await completeReconcile(prisma, interactionId, key, "Provider has no record of this call", "UNKNOWN", now, "The provider has no record of this call; a team lead can force-end it");
+        return { done: true };
+      }
+      const endStillOpen = readControlState(interaction.controlState).commands.some((c) => c.action === "END" && (c.status === "REQUESTED" || c.status === "ACCEPTED"));
+      await completeReconcile(prisma, interactionId, key, `Provider reports the call as ${provider.state.toLowerCase()}`, provider.state, now, endStillOpen && provider.state === "CONNECTED" ? "The provider still reports the call as connected; End again or ask a team lead" : null);
+      return { done: true };
     }
     case "agent.notify": {
       const agentUserId = String(payload.agentUserId);

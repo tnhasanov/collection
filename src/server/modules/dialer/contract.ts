@@ -110,10 +110,36 @@ export interface ProviderInteraction {
   held?: boolean;
 }
 
+/** Lifecycle of one call-control command, persisted on the interaction (never inferred from a timeout). */
+export type ControlCommandStatus = "REQUESTED" | "ACCEPTED" | "COMPLETED" | "FAILED";
+export type ControlCommandAction = CallControlAction | "RECONCILE";
+
+/**
+ * One command: REQUESTED (written to the outbox, no provider answer yet) → ACCEPTED (provider receipt CONFIRMED;
+ * for END the call is not ended until the provider reports call.ended) → COMPLETED (effect observed) or FAILED
+ * (provider rejected it, the outbox gave up, or the command was never dispatched). Each attempt has its own key.
+ */
+export interface ControlCommand {
+  key: string;
+  action: ControlCommandAction;
+  attempt: number;
+  status: ControlCommandStatus;
+  requestedAt: string;
+  requestedBy?: string | null;
+  acceptedAt?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  error?: string | null;
+  note?: string | null;
+  providerAttempts?: number;
+}
+
 /** Application-side view of provider-confirmed call controls, stored on the interaction and shown to the agent. */
 export interface CallControlState {
   muted: boolean;
   held: boolean;
+  commands: ControlCommand[];
+  /** Derived: commands still waiting for the provider (REQUESTED or ACCEPTED), kept for older readers. */
   pending: { action: CallControlAction; key: string; requestedAt: string }[];
   lastError: string | null;
   lastErrorAt: string | null;
@@ -122,12 +148,57 @@ export interface CallControlState {
   updatedAt: string | null;
 }
 
-export const EMPTY_CONTROL_STATE: CallControlState = { muted: false, held: false, pending: [], lastError: null, lastErrorAt: null, endRequestedAt: null, providerState: null, updatedAt: null };
+export const EMPTY_CONTROL_STATE: CallControlState = { muted: false, held: false, commands: [], pending: [], lastError: null, lastErrorAt: null, endRequestedAt: null, providerState: null, updatedAt: null };
+
+/** A command without a provider answer after this long is shown as unresolved with a recovery action. */
+export const COMMAND_REQUESTED_STALE_MS = 20_000;
+/** An accepted END without a provider call.ended after this long is unresolved (the call is NOT treated as ended). */
+export const END_ACCEPTED_STALE_MS = 30_000;
+const MAX_COMMANDS = 20;
+
+export function isOpenCommand(c: ControlCommand) {
+  return c.status === "REQUESTED" || c.status === "ACCEPTED";
+}
+
+/** Recomputes the derived fields after a change to `commands`. */
+export function normalizeControlState(state: CallControlState): CallControlState {
+  const commands = state.commands.slice(-MAX_COMMANDS);
+  const pending = commands.filter((c) => isOpenCommand(c) && c.action !== "RECONCILE").map((c) => ({ action: c.action as CallControlAction, key: c.key, requestedAt: c.requestedAt }));
+  return { ...state, commands, pending };
+}
 
 export function readControlState(value: unknown): CallControlState {
-  if (!value || typeof value !== "object") return { ...EMPTY_CONTROL_STATE, pending: [] };
+  if (!value || typeof value !== "object") return { ...EMPTY_CONTROL_STATE, commands: [], pending: [] };
   const v = value as Partial<CallControlState>;
-  return { ...EMPTY_CONTROL_STATE, ...v, pending: Array.isArray(v.pending) ? v.pending : [] };
+  let commands: ControlCommand[] = Array.isArray(v.commands) ? v.commands : [];
+  // Older records only carried `pending`: treat each entry as a REQUESTED command so it can be reconciled.
+  if (commands.length === 0 && Array.isArray(v.pending) && v.pending.length) {
+    commands = v.pending.map((p) => ({ key: p.key, action: p.action, attempt: 1, status: "REQUESTED" as const, requestedAt: p.requestedAt }));
+  }
+  return normalizeControlState({ ...EMPTY_CONTROL_STATE, ...v, commands, pending: [] });
+}
+
+/** Agent-facing summary of the control state: what is pending, what is unresolved and which recovery applies. */
+export interface ControlSummary {
+  muted: boolean;
+  held: boolean;
+  providerState: ProviderInteraction["state"] | null;
+  end: { status: ControlCommandStatus; attempt: number; requestedAt: string; acceptedAt: string | null; error: string | null; stale: boolean } | null;
+  pendingActions: CallControlAction[];
+  reconciling: boolean;
+  unresolved: boolean;
+  lastError: string | null;
+}
+
+export function summarizeControlState(state: CallControlState, now: Date): ControlSummary {
+  const age = (iso: string | null | undefined) => (iso ? now.getTime() - new Date(iso).getTime() : 0);
+  const stale = (c: ControlCommand) => (c.status === "REQUESTED" && age(c.requestedAt) > COMMAND_REQUESTED_STALE_MS) || (c.action === "END" && c.status === "ACCEPTED" && age(c.acceptedAt ?? c.requestedAt) > END_ACCEPTED_STALE_MS);
+  const ends = state.commands.filter((c) => c.action === "END");
+  const lastEnd = ends[ends.length - 1] ?? null;
+  const end = lastEnd ? { status: lastEnd.status, attempt: lastEnd.attempt, requestedAt: lastEnd.requestedAt, acceptedAt: lastEnd.acceptedAt ?? null, error: lastEnd.error ?? null, stale: stale(lastEnd) } : null;
+  const reconciling = state.commands.some((c) => c.action === "RECONCILE" && isOpenCommand(c) && !stale(c));
+  const unresolved = !!end && (end.status === "FAILED" || end.stale);
+  return { muted: state.muted, held: state.held, providerState: state.providerState, end, pendingActions: state.pending.map((p) => p.action), reconciling, unresolved, lastError: state.lastError };
 }
 
 export interface ReconciliationResult {
