@@ -3,7 +3,8 @@ import { loadAgentPage } from "../loader";
 
 export const dynamic = "force-dynamic";
 
+/** The canonical call workspace: every call, after-call work and wrap-up happens here. */
 export default async function Page() {
   const { initial, agentUser, locale, showDiagnostics } = await loadAgentPage();
-  return <AgentDesktop initial={initial} user={agentUser} focus="call" locale={locale} showDiagnostics={showDiagnostics} />;
+  return <AgentDesktop initial={initial} user={agentUser} locale={locale} showDiagnostics={showDiagnostics} />;
 }

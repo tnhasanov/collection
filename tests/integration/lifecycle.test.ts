@@ -12,6 +12,7 @@ import { allocateForSession } from "@/server/modules/dialer/routingService";
 import { saveOutcome } from "@/server/modules/interactions/outcomeService";
 import { createCallbackWorkItem, refreshWorkItemEligibility } from "@/server/modules/work/workItemService";
 import { explainWorkItem } from "@/server/modules/work/eligibilityExplain";
+import { agentFollowUps } from "@/server/modules/agent/followUpService";
 import { agentDesktopContext } from "@/server/modules/agent/agentDesktopService";
 import { addDays, bakuBusinessDate } from "@/server/dates";
 import { DEMO_SEED_INSTANT } from "@/server/clock";
@@ -29,7 +30,6 @@ const adapter = new MockDialerAdapter(() => now);
 let pendingEvents: { delayMs: number; event: NormalizedProviderEvent }[] = [];
 const scheduleEvents = async (steps: { delayMs: number; event: NormalizedProviderEvent }[]) => { pendingEvents.push(...steps); };
 async function drain() { for (let i = 0; i < 12; i++) { const n = await processOutbox(prisma, adapter, scheduleEvents, now); if (n === 0) break; } }
-async function deliver() { const steps = pendingEvents; pendingEvents = []; for (const s of steps) { adapter.applyEvent(s.event); await ingestProviderEvent(prisma, s.event, now, adapter); } }
 let seq = 0;
 const used = new Set<string>();
 const AGENT = "U-AGENT-E";
@@ -238,6 +238,18 @@ describe("callback blockers on the current business clock", () => {
     // A customer-requested callback that is due lifts the cooldown under policy: cooldown is no longer a blocker.
     const cr = await explainWorkItem(prisma, { ...wi, dueAt, reason: "CUSTOMER_REQUESTED: call me back" }, later, later);
     expect(cr.blockers.map((b) => b.code)).not.toContain("RPC_COOLDOWN");
+    // The agent's follow-up list (dashboard and Təqib işləri) shows the same live blocker, its end and the next eligible
+    // time, and sorts the overdue callback ahead of later items.
+    const items = await agentFollowUps(prisma, AGENT, later);
+    const row = items.find((i) => i.kind === "CALLBACK" && i.id === wi.id);
+    expect(row?.due).toBe("OVERDUE");
+    expect(row?.eligible).toBe(false);
+    expect(row?.origin).toBe("AGENT_PROPOSED");
+    expect(row?.blockers.map((b) => b.code)).toContain("RPC_COOLDOWN");
+    expect(row?.blockers.map((b) => b.code)).not.toContain("CALLBACK_DUE");
+    expect(row?.nextEligibleAt?.toISOString()).toBe(cooldown?.until?.toISOString());
+    const rank = { OVERDUE: 0, TODAY: 1, LATER: 2, NONE: 3 } as const;
+    expect(items.every((x, i) => i === 0 || rank[items[i - 1].due] <= rank[x.due])).toBe(true);
     await prisma.sourceWatermark.updateMany({ where: { sourceSystem: "PAYMENT_FEED" }, data: { sourceAsOf: now } });
   });
 });

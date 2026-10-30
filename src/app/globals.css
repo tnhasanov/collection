@@ -324,24 +324,27 @@ body {
 @layer components {
   .choice-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 0.4rem;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 8px;
   }
   .choice {
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: flex-start;
-    gap: 0.1rem;
-    min-height: 2.6rem;
+    gap: 2px;
+    min-height: 44px;
     border: 1px solid var(--color-line);
-    border-radius: 0.5rem;
+    border-radius: 8px;
     background: var(--color-surface);
-    padding: 0.4rem 0.6rem;
+    padding: 8px 12px;
     text-align: left;
-    font-size: 0.8125rem;
-    line-height: 1.2;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.3;
     color: var(--color-ink);
     cursor: pointer;
+    transition: border-color 120ms, background-color 120ms;
   }
   .choice:hover:not(:disabled) {
     border-color: var(--color-brand);
@@ -353,33 +356,57 @@ body {
     box-shadow: inset 0 0 0 1px var(--color-brand);
     font-weight: 600;
   }
+  .choice[aria-pressed="true"]::before {
+    content: "✓";
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    font-size: 12px;
+    color: var(--color-brand);
+  }
+  .choice {
+    position: relative;
+  }
   .choice:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: not-allowed;
+    background: var(--color-canvas);
   }
   .choice-hint {
-    font-size: 0.6875rem;
+    font-size: 12px;
     font-weight: 400;
     color: var(--color-muted);
   }
   .chip-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.3rem;
+    gap: 8px;
   }
   .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
     border: 1px solid var(--color-line);
-    border-radius: 999px;
+    border-radius: 8px;
     background: var(--color-surface);
-    padding: 0.15rem 0.6rem;
-    font-size: 0.75rem;
+    padding: 6px 12px;
+    font-size: 14px;
     color: var(--color-ink);
     cursor: pointer;
+    transition: border-color 120ms, background-color 120ms;
+  }
+  .chip:hover:not(:disabled) {
+    border-color: var(--color-brand);
   }
   .chip[aria-pressed="true"] {
     border-color: var(--color-brand);
     background: var(--color-brand-light);
+    box-shadow: inset 0 0 0 1px var(--color-brand);
     font-weight: 600;
+  }
+  .chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .step-label {
     display: flex;
@@ -460,4 +487,121 @@ body {
   .timeline-dot {
     @apply mt-1.5 h-2 w-2 shrink-0 rounded-full;
   }
+}
+
+/* Conversation workspace (one conversation: header, script + answers, details, slim action bar). */
+@layer components {
+  .call-header {
+    @apply rounded-lg border bg-surface px-4 py-3;
+    border-color: var(--color-line);
+  }
+  .call-header-row {
+    @apply flex flex-wrap items-center gap-x-5 gap-y-3;
+  }
+  .group-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--color-line);
+  }
+  .status-pill {
+    @apply inline-flex items-center gap-2 rounded-lg px-3 text-sm font-semibold whitespace-nowrap;
+    min-height: 36px;
+    border: 1px solid var(--color-line);
+  }
+  .status-pill .dot {
+    @apply inline-block h-2.5 w-2.5 rounded-full;
+  }
+  .stage {
+    @apply rounded-lg border bg-surface;
+    border-color: var(--color-line);
+  }
+  .stage + .stage {
+    margin-top: 12px;
+  }
+  .stage-head {
+    @apply flex w-full items-center gap-3 px-4 text-left;
+    min-height: 52px;
+  }
+  .stage-no {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold;
+    background: var(--color-canvas);
+    color: var(--color-muted);
+    border: 1px solid var(--color-line);
+  }
+  .stage[data-state="current"] .stage-no {
+    background: var(--color-brand);
+    border-color: var(--color-brand);
+    color: #fff;
+  }
+  .stage[data-state="done"] .stage-no {
+    background: var(--color-success-bg);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+    color: var(--color-success);
+  }
+  .stage[data-state="current"] {
+    border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-line));
+  }
+  .stage-body {
+    @apply space-y-4 px-4 pb-4;
+  }
+  .script-passage {
+    @apply rounded-lg px-4 py-3;
+    background: #faf7fd;
+    border-left: 3px solid var(--color-brand);
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--color-ink);
+  }
+  .script-var {
+    @apply rounded px-1 font-semibold;
+    background: var(--color-brand-light);
+    color: var(--color-brand-dark);
+  }
+  .script-var-missing {
+    @apply rounded px-1.5 font-medium;
+    border: 1px dashed var(--color-muted);
+    color: var(--color-muted);
+    background: transparent;
+  }
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+  .hint {
+    @apply mt-1 text-xs text-muted;
+  }
+  .slim-bar {
+    @apply sticky bottom-0 z-20 flex flex-wrap items-center gap-3 rounded-lg border bg-surface px-4 py-2;
+    border-color: var(--color-line);
+    box-shadow: 0 -6px 16px -12px rgba(37, 22, 49, 0.35);
+    min-height: 60px;
+  }
+  .panel-tabs [role="tablist"] {
+    @apply gap-1;
+  }
+  .panel {
+    @apply rounded-lg border bg-surface;
+    border-color: var(--color-line);
+  }
+  .kv {
+    @apply flex min-w-0 flex-col gap-0.5;
+  }
+  .kv-row {
+    @apply grid items-baseline gap-3;
+    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
+  }
+  .kv-label {
+    @apply text-[13px] text-muted;
+  }
+  .kv-value {
+    @apply text-sm text-ink tabular-nums;
+  }
+  .popover {
+    @apply absolute z-30 mt-2 w-80 rounded-lg border bg-surface p-3 text-sm shadow-lg;
+    border-color: var(--color-line);
+  }
+}
+
+/* Focused fields are scrolled clear of the sticky action bar. */
+html:has(.slim-bar) {
+  scroll-padding-bottom: 96px;
 }

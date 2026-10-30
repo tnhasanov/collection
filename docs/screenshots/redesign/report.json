@@ -1,0 +1,246 @@
+{
+  "checks": [
+    {
+      "name": "dashboard has no screen codes in navigation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mock telephony is labelled",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "save is disabled while the call is live",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "confirmation script shows the custom amount and date",
+      "ok": true,
+      "detail": "Təsdiqləyin: 01.11.2026 tarixinədək 137.50 AZN ödəyəcəksiniz. Bu, müqavilənizi dəyişmir. Tarixdən əvvəl xatırlatma göndərilə bilər."
+    },
+    {
+      "name": "consent is not set by entering terms",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bottom summary shows the same amount and date",
+      "ok": true,
+      "detail": "Borcalan təsdiqləndi · Ödəniş vədi (qismən) · 137.50 AZN · 01.11.2026 · Növbəti: Vədə nəzarətQismən vəd"
+    },
+    {
+      "name": "sticky bar does not cover the focused amount input",
+      "ok": true,
+      "detail": "{\"inputBottom\":513,\"barTop\":708,\"ok\":true}"
+    },
+    {
+      "name": "custom amount restored after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "custom date restored after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "explicit agreement restored after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "identity stage collapsed into a summary",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "follow-ups page shows the return-to-call indicator",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "follow-up list renders",
+      "ok": true,
+      "detail": "22 rows"
+    },
+    {
+      "name": "overdue and due-today items first",
+      "ok": true,
+      "detail": "OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,LATER,LATER,LATER,LATER,LATER,LATER"
+    },
+    {
+      "name": "returning to the call keeps the draft",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dashboard does not re-open a call the agent already saw",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no horizontal page scroll at 1440px (call)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sticky bar does not cover the agreement checkbox at 1440px",
+      "ok": true,
+      "detail": "{\"inputBottom\":796,\"barTop\":840,\"ok\":true}"
+    },
+    {
+      "name": "no horizontal page scroll at 390px (call)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sticky bar does not cover the agreement checkbox at 390px",
+      "ok": true,
+      "detail": "{\"inputBottom\":383,\"barTop\":731,\"ok\":true}"
+    },
+    {
+      "name": "End leads to after-call work",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "outcome saved; next call waits for the provider wrap-up",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no horizontal page scroll at 1440px (dashboard)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no horizontal page scroll at 1440px (follow-ups)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no horizontal page scroll at 390px (dashboard)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no horizontal page scroll at 390px (follow-ups)",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "measurements": {
+    "dashboard-1366": {
+      "pageHeight": 768,
+      "viewport": "1366x768",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": null,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    },
+    "active-call-1366": {
+      "pageHeight": 768,
+      "viewport": "1366x768",
+      "horizontalScroll": false,
+      "choiceFont": 14,
+      "chipFont": null,
+      "scriptFont": 17,
+      "titleFont": null,
+      "bodyFont": 14,
+      "buttonHeight": 38
+    },
+    "promise-form-1366": {
+      "pageHeight": 1196,
+      "viewport": "1366x768",
+      "horizontalScroll": false,
+      "choiceFont": 14,
+      "chipFont": 14,
+      "scriptFont": 17,
+      "titleFont": null,
+      "bodyFont": 14,
+      "buttonHeight": 38
+    },
+    "follow-ups-1366": {
+      "pageHeight": 1798,
+      "viewport": "1366x768",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": 14,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    },
+    "promise-form-1440": {
+      "pageHeight": 1136,
+      "viewport": "1440x900",
+      "horizontalScroll": false,
+      "choiceFont": 14,
+      "chipFont": 14,
+      "scriptFont": 17,
+      "titleFont": null,
+      "bodyFont": 14,
+      "buttonHeight": 38
+    },
+    "promise-form-390": {
+      "pageHeight": 2164,
+      "viewport": "390x844",
+      "horizontalScroll": false,
+      "choiceFont": 14,
+      "chipFont": 14,
+      "scriptFont": 17,
+      "titleFont": null,
+      "bodyFont": 14,
+      "buttonHeight": 49
+    },
+    "dashboard-1440": {
+      "pageHeight": 900,
+      "viewport": "1440x900",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": null,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    },
+    "follow-ups-1440": {
+      "pageHeight": 1744,
+      "viewport": "1440x900",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": 14,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    },
+    "dashboard-390": {
+      "pageHeight": 1155,
+      "viewport": "390x844",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": null,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    },
+    "follow-ups-390": {
+      "pageHeight": 4198,
+      "viewport": "390x844",
+      "horizontalScroll": false,
+      "choiceFont": null,
+      "chipFont": 14,
+      "scriptFont": null,
+      "titleFont": 22,
+      "bodyFont": 14,
+      "buttonHeight": 32
+    }
+  }
+}

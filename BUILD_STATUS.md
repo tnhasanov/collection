@@ -1,7 +1,29 @@
 # Build status — ATB Collections (synthetic demo)
 
-Last updated: 29 Oct 2026 (pilot-hardening pass) · branch `claude/pilot-hardening` (review branch; the shared live
-deployment on `claude/bold-bohr-njc446` is unchanged)
+Last updated: 30 Oct 2026 (agent workspace redesign and call-lifecycle repair) · branch `claude/bold-bohr-njc446`
+
+## Agent workspace redesign and call-lifecycle repair (30 Oct 2026)
+
+Reported defect: a senior agent's call stayed "connected" for over an hour with "Zəngi bitir…" and the outcome save
+both disabled. Root cause reproduced in code: a retried End reused the fixed command key `ctl:END:<id>:once`, so the
+outbox refused it as a duplicate while the screen still recorded a pending End; UNKNOWN receipts were dead-lettered
+without clearing that pending flag, and nothing reconciled it on reload.
+
+| Area | What changed | Where |
+|---|---|---|
+| Command lifecycle | Every Mute/Hold/End is a command with its own key per attempt (`ctl:<ACTION>:<interaction>:<n>`) and an explicit state REQUESTED → ACCEPTED → COMPLETED / FAILED; family duplicates refused under a row lock; stale commands superseded; dead-lettered commands marked FAILED; open commands re-synchronised with the outbox on every page load, reconnect and reconciliation run. A timeout never ends a call: a stale End offers **End again** and **Check call status** (`RECONCILE` asks the provider; only a provider "ended" closes the call) | `dialer/contract.ts`, `dialer/callControlService.ts`, `dialer/runtime.ts`, `outbox/processor.ts`, `api/agent/call-control` |
+| Event ordering | Events for another call leg are ignored; `call.ended` before `agent.bridged` opens after-call work; late `attempt.started`/`agent.bridged` after the end only add timestamps | `dialer/providerEventService.ts` |
+| Outcome submission | One deterministic key per interaction (`outcome:<id>`); atomic DRAFT → SAVED claim so concurrent saves produce one promise/callback/wrap-up; localized validation (AZ/EN/RU) with codes; promise amount ≤ total owed and loans must be active (server-side); callback moved into permitted hours is a warning, not an error | `interactions/outcomeService.ts`, `outcomeSchema.ts`, `promises/promiseService.ts` |
+| Dispatch | No next customer while an interaction is open, unsaved or its wrap-up unacknowledged; reservations with an open interaction are never expired | `dialer/routingService.ts`, tests |
+| Follow-ups | Voice items re-evaluated at the current business clock (`explainWorkItem`); stored `nextEligibleAt` is the earliest blocker end, so a due callback is re-checked when it becomes due; the list shows the restriction that applies now and when it ends | `work/eligibilityExplain.ts`, `work/workItemService.ts`, `agent/followUpService.ts` |
+| Routes | `/agent` is the personal dashboard (today's workload, due callbacks with live blockers, promises needing attention, concise results); `/agent/call` is the only call workspace; other pages show a return-to-call indicator (`/api/agent/active`), the dashboard opens the call workspace once per new call | `(shell)/agent/*`, `shell/ActiveCallIndicator.tsx` |
+| Workspace | Two-row header (name, CIF, overdue, DPD, data freshness with details on demand; call status + timer, call controls; shift controls separated); left 60 %: one conversation Şəxsiyyət → Səbəb və müzakirə → Nəticə və təsdiq with the script passage of the current stage, completed stages collapsed into editable summaries; right 40 %: customer summary + Məlumat / Hesablar / Tarixçə / Əlaqəli şəxslər / Ödəniş təlimatı; slim bottom bar with one-line summary, **Təfərrüat**, **Yadda saxla və fasilə ver**, **Yadda saxla və davam et** | `components/agent/AgentDesktop.tsx`, `CallHeader.tsx`, `ConversationFlow.tsx`, `CustomerPanel.tsx`, `ActionBar.tsx` |
+| One draft | The server draft is the single source for answers, script values, presets and the preview; custom amount/date restored visibly; changing amount, date or loans clears the customer's agreement; reason-skip and stage restored after reload/navigation; outcome fields set aside (not submitted) when switching outcome or identity | `components/agent/conversation.ts`, `api/agent/interactions/[id]/draft` |
+| Language | Agent-facing statuses, validation, next actions, follow-up and result labels, timeline and generated summary in Azerbaijani (EN reference, RU partial with English fallback); screen codes removed from the navigation | `i18n/agentText.ts`, `i18n/outcomeText.ts`, `shell/*` |
+
+Measured at 1366×768 (synthetic data, mock telephony; `e2e/workspace-redesign.mjs`, 26/26 checks): promise form page
+height 1,266 px (was ~1,730 px), decision text 14 px, script 17 px, controls 38 px, no horizontal scroll at 1366, 1440
+and 390 px, the sticky bar never covers the focused input. Screenshots: `docs/screenshots/redesign/`.
 
 ## Pilot-hardening pass (29 Oct 2026)
 
@@ -61,17 +83,17 @@ handover: `MORNING_HANDOVER.md`.
 | `npm run measure` | interaction counts per scenario (see evidence file) |
 | `npm run screenshots:agent` | home / reserved / live / live-captured / after-call work at 1440 and 1024 px |
 
-## Executed checks (this build)
+## Executed checks (this build, 30 Oct 2026, local container)
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | clean |
-| `npm run lint` | clean (eslint flat config: core-web-vitals, typescript, react-hooks) |
-| `npm test` (unit) | 36 passing — annuity fixture, arrears/DPD, rule interpreter + golden cases, ERA/buckets, treatment, ranking, contact policy |
-| `npm run test:integration` | 14 passing — CTI login/ready, automatic allocation of C-DEMO-001, duplicate provider events, END → ACW, PTP save + wrap-up ack + duplicate save, suppression (120 h + PTP), verified payment keeps promise/cures case/replay = DUPLICATE, partial payment, failed-attempt retry, blocked cases, concurrent claims, payment-before-dial withdrawal, payment-during-call notification + deferred break, failed wrap-up ack exception, permission matrix |
-| `npm run e2e` (browser critical path) | passed — login → connect → Ready → automatic reservation → screen pop → End → ACW → PTP saved → wrap-up acknowledged → supervisor view → mock verified payment PROCESSED → replay DUPLICATE → customer 360 |
-| `npm run screenshots` | 78 images in `docs/screenshots/` at 1440 / 1280 / 1024 px (24 screens + login + agent home) |
-| Governance flows (API) | template draft → approval → ACTIVE; campaign create → review → release approval → RUNNING → pause → cancel; arrangement review → approval → mock core confirmation; handover create → approval → export → accept; settings change → POLICY_ACTIVATION approval → applied; self-approval refused; imports validate → dry-run → commit → rollback (reversal events), duplicate batch refused |
+| `npm run lint` | clean |
+| `npm test` (unit) | 72 passing (8 files) — incl. `conversation.test.ts`: script values = form values, custom amount/date restore, consent cleared on term changes and never set implicitly, date shortcuts inside the horizon, identity restrictions and stash/restore, stage restore, Azerbaijani error text |
+| `npm run test:integration` | 49 passing (5 files) — incl. `lifecycle.test.ts`: rejected End + retry with a new key, unknown End dead-lettered → FAILED with the call still open, concurrent End → one command, stale accepted End → RECONCILE → after-call work, reload reconciles legacy pending End, `call.ended` before `agent.bridged`, foreign call leg ignored, concurrent outcome saves → one effect, no dispatch before a valid wrap-up, callback blockers recomputed at the current clock |
+| `npx next build` | succeeds |
+| `node e2e/workspace-redesign.mjs` | 26/26 checks (1366×768, 1440×900, 390×844; synthetic data, mock telephony) |
+| `node e2e/pilot-journeys.mjs` | agent, team lead, head and admin journeys complete at 1366 and 1440 (screenshots in `docs/screenshots/after`) |
 
 ## Scope status by screen
 
@@ -107,6 +129,8 @@ handover: `MORNING_HANDOVER.md`.
 | S28 Agent desktop (A/B/C) | `/agent` | P0 core | done — guided workflow per blueprint (quick choices, derived coverage, factual summary, one final save), SSE + polling, drafts, wrap-up gating, recovery states, manual dial for seniors |
 
 ## Known gaps and disabled functionality (precise inventory)
+
+- **Workspace redesign (30 Oct)**: the call workspace stacks below 1280 px (conversation first, customer details after); the native date input follows the browser's locale format; the customer profile page (`/customers/[id]`) and management screens were not part of this redesign and keep their earlier wording; the older browser scripts `e2e/run.mjs` and `e2e/agent-states.mjs` still expect English labels and the old `/agent` workspace and were not run (the current journeys are `e2e/workspace-redesign.mjs` and `e2e/pilot-journeys.mjs`); a real 3CX adapter is out of scope — only the mock is exercised.
 
 - **Guided workflow**: live/ACW layouts stack below 1280 px (review strip needs scrolling at 1024 px); transfer unsupported by the mock; calibration reviews are a process step; reminder SMS go to the local outbound log. What only a real provider can prove is listed in `AGENT_WORKFLOW_ACCEPTANCE.md` §7.
 

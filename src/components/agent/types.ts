@@ -21,4 +21,6 @@ export type OutcomeDraft = {
   customerStatement?: { indicativePaymentDate?: string | null; indicativeAmount?: string | null; text?: string | null } | null;
   secondaryFlags?: string[];
   returnReady?: boolean;
+  /** Conversation position (draft only; never part of the saved outcome). */
+  ui?: { reasonSkipped?: boolean } | null;
 };

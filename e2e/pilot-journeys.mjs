@@ -26,6 +26,7 @@ for (const [w, h] of SIZES) {
   const agent = await context.newPage();
   await login(agent, "agent.a");
   await agent.waitForURL((u) => u.pathname.startsWith("/agent"), { timeout: 30000 });
+  await agent.goto(`${BASE}/agent/call`); // /agent is the dashboard; calls happen in the call workspace
   const connect = agent.getByTestId("connect-dialer");
   if (await connect.isVisible().catch(() => false)) { await connect.click(); await agent.getByTestId("compact-header").waitFor({ timeout: 60000 }); }
   // Clear any leftover after-call work from an earlier run so the shift starts from Ready.
@@ -37,14 +38,14 @@ for (const [w, h] of SIZES) {
   await agent.waitForTimeout(800);
   await shot(agent, "agent-home", w);
   // Reach a call: click Go Ready when it becomes available, otherwise wait for the allocation of an already-Ready agent.
-  for (let i = 0; i < 90 && !(await agent.getByTestId("call-strip").isVisible().catch(() => false)); i++) {
+  for (let i = 0; i < 90 && !(await agent.getByTestId("header-customer").isVisible().catch(() => false)); i++) {
     const ready = agent.getByTestId("go-ready");
     if ((await ready.isVisible().catch(() => false)) && (await ready.isEnabled().catch(() => false))) await ready.click().catch(() => null);
     await agent.waitForTimeout(2000);
   }
-  await agent.getByTestId("call-strip").waitFor({ timeout: 120000 });
+  await agent.getByTestId("header-customer").waitFor({ timeout: 120000 });
   await shot(agent, "agent-reserved", w);
-  await agent.getByTestId("identity-RPC_VERIFIED").waitFor({ timeout: 120000 }); // live: responses open when connected
+  await enabled(agent, "identity-RPC_VERIFIED", 120000); // live: responses open when connected
   await agent.waitForTimeout(600);
   await shot(agent, "agent-live", w);
   await agent.getByTestId("identity-RPC_VERIFIED").click();
@@ -53,7 +54,7 @@ for (const [w, h] of SIZES) {
   await agent.getByTestId("ptp-amount-overdue").click();
   await agent.getByTestId("ptp-date-3days").click();
   await agent.getByTestId("ptp-confirm").check();
-  await agent.getByTestId("factual-summary").waitFor({ timeout: 30000 });
+  await agent.getByTestId("outcome-line").waitFor({ timeout: 30000 });
   // Related persons and payment instructions tabs
   await agent.getByRole("tab", { name: /Əlaqəli şəxslər|Related persons/ }).click();
   await agent.waitForTimeout(300);
@@ -64,7 +65,7 @@ for (const [w, h] of SIZES) {
   await shot(agent, "agent-pay-instructions", w);
   await agent.getByTestId("ctl-end").click();
   await agent.getByTestId("acw-strip").waitFor({ timeout: 60000 });
-  await agent.getByTestId("factual-summary").waitFor({ timeout: 30000 });
+  await agent.getByTestId("outcome-line").waitFor({ timeout: 30000 });
   await agent.waitForTimeout(1200);
   await shot(agent, "agent-acw", w);
   await enabled(agent, "save-next");

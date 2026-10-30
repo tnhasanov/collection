@@ -104,6 +104,21 @@ suppression behaviour, wrap-up timeout configuration, transfer/reconnect tests a
 - Supervisor recovery: `POST /api/operations/controls {action: "FORCE_END_CALL", interactionId, reason}` moves the
   call to after-call work with an upper-bound talk time and resolves the related exceptions (audited).
 
+### Command lifecycle and telephony mode (30 Oct 2026)
+
+- Each call-control request is a `ControlCommand` stored in `Interaction.controlState.commands` with its own outbox
+  key per attempt (`ctl:<ACTION>:<interactionId>:<attempt>`) and the states REQUESTED (written with the outbox row in
+  one transaction) → ACCEPTED (provider receipt CONFIRMED for END: the provider is ending the call) → COMPLETED
+  (`call.ended` received, or the provider confirmed MUTE/HOLD) or FAILED (REJECTED receipt, dead-lettered command,
+  superseded stale request, outbox message missing). A request while the same family is open returns `DUPLICATE`.
+- `RECONCILE` (topic `dialer.reconcileInteraction`) asks the provider for the interaction: ENDED → a truthful
+  `call.ended` is ingested; CONNECTED with an accepted End → the End is marked FAILED with a reason; UNKNOWN →
+  recorded, the call stays open. Time alone never closes a call.
+- The worker publishes `capabilities.mode` (`MOCK` | `REAL`). The agent header labels mock telephony ("Sınaq
+  telefoniyası"); a real adapter (the bank uses 3CX) would implement the same contract — `requestCallControl`
+  receipts, `getInteraction` for reconciliation and the normalized events above. The 3CX adapter itself is not part
+  of this build.
+
 ## SMS gateway (proposal)
 
 Outbound: template id/version, language, rendered body, encoding (GSM-7 / UCS-2) and segment estimate, dedup key

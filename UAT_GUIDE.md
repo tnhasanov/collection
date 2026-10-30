@@ -14,31 +14,31 @@ is Azerbaijani; switch to English or Russian from the topbar.
 
 ## 1. Agent shift (agents, 20 minutes)
 
-1. Open **Mənim panelim** (`/agent`), click **Dialerə qoşul**, then **Hazır ol**. Expected: the header chip shows the
-   provider-confirmed state and the time in state; nothing is assigned until the provider confirms Ready.
-2. Wait for the automatic reservation. Expected: the header shows the customer in one line (name, CIF, language,
-   loans, DPD, overdue amount) with the chips **Məlumat aktualdır** and **Əlaqəyə icazə var**, the call chip changes
-   from "Zəng edilir" to "Bağlantı var" with a timer; the script opens at reading size; **Cavablar** open when the
-   customer is connected.
-3. Capture during the call: who is speaking → reason → outcome. Try each of these:
-   - **Ödəniş vədi** with a date within 30 days: pick a suggested amount and date, tick the explicit confirmation.
-     Expected: the sticky bar shows the factual summary and "Saxlanılacaq nəticə".
-   - A date **beyond 30 days** ("Başqa tarix"): expected warning "Bu tarix vəd siyasətindən kənardır …" with the
-     button **İstisna təklifi kimi qeyd et**; after clicking, the outcome becomes "Siyasətdən kənar tarix (istisna)".
-   - **Ödəniş təlimatı** tab → **Ödəniş təlimatını göndər** (only after "Borcalan təsdiqləndi"). Expected: toast with
-     segment count and estimated cost; the message appears under "Son mesajlar".
-   - **Əlaqəli şəxslər** tab: expected roles, verification and "Kredit məlumatı verilmir: yalnız mesaj" where
-     disclosure is not allowed.
-4. Call controls: **Səssiz** / **Gözlətmə** show "…" while pending and settle when the provider confirms. **Zəngi
-   bitir** ends the call. Expected: after-call work with the timer; one **Yadda saxla və növbəti zəng** or **Yadda
-   saxla və fasilə**; the next call is blocked until the wrap-up is acknowledged.
-5. Overdue cleared during a call: the coordinator posts a payment for your current customer from `/payments`
-   (simulator, "POST verified payment" for the full overdue). Expected: a success banner "Gecikmə bağlanıb…"; the
-   outcome **Gecikmə bağlanıb** appears and no promise is required.
-6. Death report: on a third-party answer choose **Xüsusi hal** → "Vəfat barədə məlumat", pick who reported it.
-   Expected: saved as reported (not confirmed); routine contact stops; a lead sees a verification item.
-7. **Təqib işləri**: callbacks, promises with reminder status (scheduled / sent / delivered), tasks and failed
-   contacts (retried centrally, nothing to redial).
+1. Open **Mənim panelim** (`/agent`): today's workload, due callbacks (callable now, or the restriction and the time
+   it ends), promises needing attention and your results. Click **Zənglərə başla** to open **Cari zəng**
+   (`/agent/call`), click **Dialerə qoşul**, then **Hazır ol**. Nothing is assigned until the provider confirms Ready.
+2. Wait for the automatic reservation. Expected header: name, CIF, overdue, DPD, "Məlumat aktualdır" (click for
+   details), the call status with a timer, **Sınaq telefoniyası** (mock telephony: no real call is placed), the call
+   controls and, separated on the right, **Fasilə** / **Növbəni bitir**.
+3. Follow the conversation on the left: **Şəxsiyyət** → **Səbəb və müzakirə** → **Nəticə və təsdiq**. Finished
+   stages collapse into a one-line summary with **Dəyiş**. Nothing is preselected.
+   - **Ödəniş vədi** → **Başqa məbləğ** (e.g. 137.50) and **Başqa tarix**. Expected: the confirmation passage of the
+     script shows exactly that amount and date; a partial amount shows how much stays overdue; tick the agreement
+     only after the customer agrees. Changing the amount, date or loans removes the tick with a notice.
+   - Reload the page (F5) or open **Təqib işləri** and come back with **Zəngə qayıt**. Expected: same stage, same
+     custom amount/date, agreement still ticked.
+   - **Geri zəng tələbi**: time shortcuts or another time; **Artıq ödənilib (iddia)**: claim details (a claim is not a
+     verified payment).
+   - **Üçüncü şəxs**: no debt details; only "Söhbət olmayıb" or "Xüsusi hal". Switching back to "Borcalan
+     təsdiqləndi" restores the earlier answers.
+4. **Yadda saxla və davam et** stays disabled while the call is live. **Zəngi bitir** → after-call work →
+   **Təfərrüat** shows the full summary → save. The next customer comes only after the provider acknowledges the
+   wrap-up. If an End is not confirmed, the header shows **Yenidən bitir** and **Zəngin vəziyyətini yoxla**; the call is
+   never closed by a timeout.
+5. Overdue cleared during a call: the coordinator posts a verified payment for the full overdue from `/payments`.
+   Expected: a success banner, "Ödəniş vədi" is disabled and **Gecikmə bağlanıb** is offered.
+6. **Təqib işləri**: callbacks, promises, tasks and failed contacts in one list, overdue and due-today first, each with
+   the next step or the restriction that applies now and when it ends.
 
 ## 2. Team lead (15 minutes)
 

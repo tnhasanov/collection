@@ -149,7 +149,8 @@ describe("guided conversation: structured outcomes with honest provenance", () =
     // A callback outside permitted hours is moved to the next permitted time and the adjustment is reported, not hidden.
     const { interaction: i2 } = await openDraft(customers[5]);
     const r2 = await save(i2.id, { identityStatus: "RPC_VERIFIED", businessOutcome: "CALLBACK_REQUESTED", nonPaymentReason: "FORGOT", callback: { dueAt: "2026-10-28T19:30:00.000Z", customerRequested: true, ownerMode: "POOL" } });
-    expect(r2.preview?.errors.some((e) => e.startsWith("Requested callback time is outside"))).toBe(true);
+    expect(r2.preview?.warnings.some((e) => e.startsWith("Requested callback time is outside"))).toBe(true);
+    expect(r2.preview?.errors ?? []).toHaveLength(0);
     expect(r2.preview?.callbackAt?.toISOString()).not.toBe("2026-10-28T19:30:00.000Z");
   });
 

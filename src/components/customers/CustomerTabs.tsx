@@ -6,7 +6,7 @@ import { fmtAzn, fmtDate, fmtDateTime, humanize } from "@/lib/format";
 import type { JsonOf } from "@/components/agent/types";
 import type { Customer360 } from "@/server/modules/customers/customerService";
 import { t, type Locale } from "@/i18n/dictionaries";
-import { paymentStateLabel } from "@/components/agent/DetailsTabs";
+import { paymentStateLabel } from "@/components/agent/CustomerPanel";
 
 type Data = JsonOf<Customer360>;
 const TONE: Record<string, "success" | "warning" | "danger" | "info" | "neutral"> = { ACTIVE: "info", KEPT: "success", PARTIALLY_PAID: "warning", PENDING_RECONCILIATION: "warning", BROKEN: "danger", CANCELLED: "neutral", POSTED: "success", REVERSED: "danger", QUARANTINED: "warning", PENDING: "warning", UNMATCHED: "warning" };

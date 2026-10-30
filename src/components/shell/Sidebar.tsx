@@ -7,13 +7,14 @@ import type { NavGroup } from "@/components/shell/nav";
 import { t, type Locale } from "@/i18n/dictionaries";
 import { cx } from "@/components/ui";
 
-export function Sidebar({ groups, locale, collapsedDefault = false }: { groups: NavGroup[]; locale: Locale; collapsedDefault?: boolean }) {
+export function Sidebar({ groups, locale }: { groups: NavGroup[]; locale: Locale }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(!collapsedDefault);
+  // Closed by default: on wide screens the sidebar is always shown (lg:static), on narrow screens it opens on demand.
+  const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="fixed left-2 top-2 z-40 rounded-md bg-brand-dark px-2 py-1 text-xs text-white lg:hidden" aria-expanded={open} aria-controls="app-sidebar" onClick={() => setOpen((o) => !o)}>
-        {open ? "Hide menu" : "Menu"}
+        {open ? t(locale, "nav.hideMenu") : t(locale, "nav.menu")}
       </button>
       <aside id="app-sidebar" className={cx("fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-brand-dark text-white transition-transform lg:static lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")} aria-label="Primary navigation">
         <div className="flex items-center gap-3 px-4 pt-4 pb-2">
@@ -31,7 +32,6 @@ export function Sidebar({ groups, locale, collapsedDefault = false }: { groups: 
                     <li key={item.href}>
                       <Link href={item.href} className="nav-link" aria-current={active ? "page" : undefined} onClick={() => setOpen(false)}>
                         <span>{t(locale, item.labelKey)}</span>
-                        <span className="ml-auto text-[10px] text-white/40">{item.screen}</span>
                       </Link>
                     </li>
                   );

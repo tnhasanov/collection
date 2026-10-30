@@ -37,7 +37,7 @@ export function Topbar(p: TopbarProps) {
     }
   }
   return (
-    <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2 lg:px-6">
+    <header className="z-20 flex flex-wrap items-center gap-3 border-b border-line bg-surface py-2 pr-4 pl-24 lg:sticky lg:top-0 lg:px-6">
       <form
         role="search"
         className="min-w-[200px] flex-1 lg:max-w-md"

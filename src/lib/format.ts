@@ -16,10 +16,13 @@ export function fmtPct(v: number | string | null | undefined, digits = 1): strin
   return `${(Number(v) * 100).toFixed(digits)}%`;
 }
 
-export function fmtDateTime(v: string | Date | null | undefined, seconds = false): string {
+const numeric = (locale?: string) => locale === "az" || locale === "ru";
+
+/** English: "dd MMM yyyy, HH:mm"; Azerbaijani and Russian: "dd.MM.yyyy HH:mm" (Asia/Baku). */
+export function fmtDateTime(v: string | Date | null | undefined, seconds = false, locale?: string): string {
   if (!v) return "—";
   const d = typeof v === "string" ? DateTime.fromISO(v) : DateTime.fromJSDate(v);
-  return d.setZone(BAKU).toFormat(seconds ? "dd MMM yyyy, HH:mm:ss" : "dd MMM yyyy, HH:mm");
+  return d.setZone(BAKU).toFormat(numeric(locale) ? (seconds ? "dd.MM.yyyy HH:mm:ss" : "dd.MM.yyyy HH:mm") : seconds ? "dd MMM yyyy, HH:mm:ss" : "dd MMM yyyy, HH:mm");
 }
 
 export function fmtTime(v: string | Date | null | undefined): string {
@@ -28,11 +31,19 @@ export function fmtTime(v: string | Date | null | undefined): string {
   return d.setZone(BAKU).toFormat("HH:mm");
 }
 
-export function fmtDate(v: string | Date | null | undefined): string {
+export function fmtDate(v: string | Date | null | undefined, locale?: string): string {
   if (!v) return "—";
-  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return DateTime.fromISO(v, { zone: "utc" }).toFormat("dd MMM yyyy");
+  const f = numeric(locale) ? "dd.MM.yyyy" : "dd MMM yyyy";
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return DateTime.fromISO(v, { zone: "utc" }).toFormat(f);
   const d = typeof v === "string" ? DateTime.fromISO(v) : DateTime.fromJSDate(v);
-  return d.setZone(BAKU).toFormat("dd MMM yyyy");
+  return d.setZone(BAKU).toFormat(f);
+}
+
+/** "dd.MM HH:mm" style short date-time for dense rows (numeric in every language). */
+export function fmtShortDateTime(v: string | Date | null | undefined): string {
+  if (!v) return "—";
+  const d = typeof v === "string" ? DateTime.fromISO(v) : DateTime.fromJSDate(v);
+  return d.setZone(BAKU).toFormat("dd.MM HH:mm");
 }
 
 export function fmtDuration(seconds: number | null | undefined): string {

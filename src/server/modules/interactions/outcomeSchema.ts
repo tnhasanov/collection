@@ -40,7 +40,8 @@ export const outcomeSchema = z.object({
 });
 export type OutcomeInput = z.infer<typeof outcomeSchema>;
 
-export const draftSchema = outcomeSchema.partial().extend({ idempotencyKey: z.string().min(8).max(120) });
+/** A draft also keeps where the agent is in the conversation, so a reload or a return to the call reopens the same stage. */
+export const draftSchema = outcomeSchema.partial().extend({ idempotencyKey: z.string().min(8).max(120), ui: z.object({ reasonSkipped: z.boolean().optional() }).nullable().optional() });
 export type DraftInput = z.infer<typeof draftSchema>;
 
 export const OUTCOME_LABELS: Record<(typeof BUSINESS_OUTCOMES)[number], string> = {
