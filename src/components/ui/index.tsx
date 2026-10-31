@@ -5,7 +5,7 @@ import Link from "next/link";
 import { cx } from "@/lib/cx";
 export { cx };
 
-type ButtonVariant = "primary" | "secondary" | "solid" | "danger" | "ghost";
+type ButtonVariant = "primary" | "secondary" | "soft" | "solid" | "danger" | "ghost";
 export function Button({ variant = "secondary", size, className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: "sm" }) {
   return <button type="button" className={cx("btn", `btn-${variant}`, size === "sm" && "btn-sm", className)} {...props} />;
 }

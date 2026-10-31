@@ -18,7 +18,7 @@
     {
       "name": "confirmation script shows the custom amount and date",
       "ok": true,
-      "detail": "Təsdiqləyin: 01.11.2026 tarixinədək 137.50 AZN ödəyəcəksiniz. Bu, müqavilənizi dəyişmir. Tarixdən əvvəl xatırlatma göndərilə bilər."
+      "detail": "Təsdiqləyin: 02.11.2026 tarixinədək 137,50 AZN ödəyəcəksiniz. Bu, müqavilənizi dəyişmir. Tarixdən əvvəl xatırlatma göndərilə bilər."
     },
     {
       "name": "consent is not set by entering terms",
@@ -28,12 +28,12 @@
     {
       "name": "bottom summary shows the same amount and date",
       "ok": true,
-      "detail": "Borcalan təsdiqləndi · Ödəniş vədi (qismən) · 137.50 AZN · 01.11.2026 · Növbəti: Vədə nəzarətQismən vəd"
+      "detail": "Ödəniş vədi (qismən) · 137,50 AZN · 02.11.2026Qismən vəd"
     },
     {
       "name": "sticky bar does not cover the focused amount input",
       "ok": true,
-      "detail": "{\"inputBottom\":513,\"barTop\":708,\"ok\":true}"
+      "detail": "{\"inputBottom\":394,\"barTop\":697,\"ok\":true}"
     },
     {
       "name": "custom amount restored after reload",
@@ -63,12 +63,12 @@
     {
       "name": "follow-up list renders",
       "ok": true,
-      "detail": "23 rows"
+      "detail": "27 rows"
     },
     {
       "name": "overdue and due-today items first",
       "ok": true,
-      "detail": "OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,LATER,LATER,LATER,LATER,LATER,LATER"
+      "detail": "OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,OVERDUE,LATER,LATER,LATER,LATER,LATER"
     },
     {
       "name": "returning to the call keeps the draft",
@@ -88,7 +88,7 @@
     {
       "name": "sticky bar does not cover the agreement checkbox at 1440px",
       "ok": true,
-      "detail": "{\"inputBottom\":560,\"barTop\":778,\"ok\":true}"
+      "detail": "{\"inputBottom\":556,\"barTop\":765,\"ok\":true}"
     },
     {
       "name": "no horizontal page scroll at 390px (call)",
@@ -98,7 +98,7 @@
     {
       "name": "sticky bar does not cover the agreement checkbox at 390px",
       "ok": true,
-      "detail": "{\"inputBottom\":383,\"barTop\":731,\"ok\":true}"
+      "detail": "{\"inputBottom\":382,\"barTop\":717,\"ok\":true}"
     },
     {
       "name": "End leads to after-call work",
@@ -133,70 +133,70 @@
   ],
   "measurements": {
     "dashboard-1366": {
-      "pageHeight": 768,
+      "pageHeight": 823,
       "viewport": "1366x768",
       "horizontalScroll": false,
       "choiceFont": null,
       "chipFont": null,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 0
     },
     "active-call-1366": {
-      "pageHeight": 768,
+      "pageHeight": 905,
       "viewport": "1366x768",
       "horizontalScroll": false,
       "choiceFont": 14,
       "chipFont": null,
-      "scriptFont": 17,
-      "titleFont": null,
+      "scriptFont": 16,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 38
+      "buttonHeight": 36
     },
     "promise-form-1366": {
-      "pageHeight": 1266,
+      "pageHeight": 929,
       "viewport": "1366x768",
       "horizontalScroll": false,
-      "choiceFont": 14,
+      "choiceFont": null,
       "chipFont": 14,
-      "scriptFont": 17,
-      "titleFont": null,
+      "scriptFont": 16,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 38
+      "buttonHeight": 36
     },
     "follow-ups-1366": {
-      "pageHeight": 1863,
+      "pageHeight": 2146,
       "viewport": "1366x768",
       "horizontalScroll": false,
       "choiceFont": null,
       "chipFont": 14,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 0
     },
     "promise-form-1440": {
-      "pageHeight": 1205,
+      "pageHeight": 912,
       "viewport": "1440x900",
       "horizontalScroll": false,
-      "choiceFont": 14,
+      "choiceFont": null,
       "chipFont": 14,
-      "scriptFont": 17,
-      "titleFont": null,
+      "scriptFont": 16,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 38
+      "buttonHeight": 36
     },
     "promise-form-390": {
-      "pageHeight": 2316,
+      "pageHeight": 1789,
       "viewport": "390x844",
       "horizontalScroll": false,
-      "choiceFont": 14,
+      "choiceFont": null,
       "chipFont": 14,
-      "scriptFont": 17,
-      "titleFont": null,
+      "scriptFont": 16,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 49
+      "buttonHeight": 45
     },
     "dashboard-1440": {
       "pageHeight": 900,
@@ -205,42 +205,42 @@
       "choiceFont": null,
       "chipFont": null,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 0
     },
     "follow-ups-1440": {
-      "pageHeight": 1809,
+      "pageHeight": 2092,
       "viewport": "1440x900",
       "horizontalScroll": false,
       "choiceFont": null,
       "chipFont": 14,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 0
     },
     "dashboard-390": {
-      "pageHeight": 1155,
+      "pageHeight": 1297,
       "viewport": "390x844",
       "horizontalScroll": false,
       "choiceFont": null,
       "chipFont": null,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 30
     },
     "follow-ups-390": {
-      "pageHeight": 4371,
+      "pageHeight": 4995,
       "viewport": "390x844",
       "horizontalScroll": false,
       "choiceFont": null,
       "chipFont": 14,
       "scriptFont": null,
-      "titleFont": 22,
+      "titleFont": 25,
       "bodyFont": 14,
-      "buttonHeight": 32
+      "buttonHeight": 30
     }
   }
 }

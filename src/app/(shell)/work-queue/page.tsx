@@ -45,7 +45,7 @@ export default async function WorkQueuePage({ searchParams }: { searchParams: Pr
   const note = A("cl.kpi.customersNote");
   return (
     <>
-      <PageHeader kicker={A("cl.count", { n: data.total })} title={A("cl.title.queue")} lead={A("cl.lead.queue")} actions={hasPermission(user.role, "queue.claim") ? <ClaimNextButton locale={locale} /> : null} />
+      <PageHeader compact title={A("cl.title.queue")} meta={A("cl.count", { n: data.total })} actions={hasPermission(user.role, "queue.claim") ? <ClaimNextButton locale={locale} /> : null} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="queue-kpis">
         <Kpi label={A("cl.kpi.assigned")} value={header.assigned} note={note} href="/work-queue?queue=mine" />
         <Kpi label={A("cl.kpi.eligible")} value={header.eligible} note={note} href="/work-queue?queue=all&eligibility=ELIGIBLE" />
@@ -64,9 +64,9 @@ export default async function WorkQueuePage({ searchParams }: { searchParams: Pr
         ) : (
           <CustomerRowsTable rows={JSON.parse(JSON.stringify(data.rows))} locale={locale} variant="queue" caption={A("cl.title.queue")} />
         )}
-        <RowsPager page={page} pageSize={PAGE_SIZE} total={data.total} hrefFor={hrefFor} locale={locale} />
       </div>
-      <p className="mt-3 text-[13px] text-muted">{A("cl.claimNote")}</p>
+      <RowsPager page={page} pageSize={PAGE_SIZE} total={data.total} hrefFor={hrefFor} locale={locale} />
+      <p className="mt-3 text-xs text-muted">{A("cl.lead.queue")} {A("cl.claimNote")}</p>
     </>
   );
 }

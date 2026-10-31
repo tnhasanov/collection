@@ -57,6 +57,7 @@ const en = {
     pilot: "PILOT · synthetic",
     integration: "INTEGRATION",
     workerOffline: "Worker offline",
+    notifications: "Notifications",
   },
   common: {
     save: "Save",
@@ -223,7 +224,7 @@ const az: DeepPartial<Dictionary> = {
     strategy: "Strategiya",
     management: "İdarəetmə",
     administration: "Administrasiya",
-    myWorkspace: "Mənim iş sahəm",
+    myWorkspace: "İş sahəsi",
     home: "Əsas səhifə",
     overview: "Ümumi baxış",
     workQueue: "Mənim iş növbəm",
@@ -255,7 +256,7 @@ const az: DeepPartial<Dictionary> = {
     menu: "Menyu",
     hideMenu: "Menyunu gizlət",
   },
-  topbar: { search: "Ad, CIF, kredit № və ya telefon", businessDate: "Biznes tarixi", sourceRefreshed: "Mənbə yeniləndi", signOut: "Çıxış", changePassword: "Şifrəni dəyiş", language: "Dil", demo: "DEMO", pilot: "PİLOT · sintetik", integration: "İNTEQRASİYA", workerOffline: "Arxa xidmət oflayn" },
+  topbar: { search: "Ad, CIF, kredit № və ya telefon", businessDate: "Biznes tarixi", sourceRefreshed: "Mənbə yeniləndi", signOut: "Çıxış", changePassword: "Şifrəni dəyiş", language: "Dil", demo: "DEMO", pilot: "PİLOT · sintetik", integration: "İNTEQRASİYA", workerOffline: "Arxa xidmət oflayn", notifications: "Bildirişlər" },
   common: { save: "Yadda saxla", cancel: "Ləğv et", loading: "Yüklənir…", empty: "Göstəriləcək məlumat yoxdur", error: "Xəta baş verdi", readOnly: "Yalnız oxumaq", denied: "Bu məlumata baxmaq icazəniz yoxdur", stale: "Köhnəlmiş məlumat", reason: "Səbəb", customer: "Müştəri", loan: "Kredit", amount: "Məbləğ", status: "Status", owner: "Sahib", date: "Tarix", actions: "Əməliyyatlar", azn: "AZN", yes: "bəli", no: "xeyr", none: "Yoxdur", open: "Aç" },
   agent: {
     workspace: "Mənim iş sahəm",
@@ -404,7 +405,7 @@ const ru: DeepPartial<Dictionary> = {
     menu: "Меню",
     hideMenu: "Скрыть меню",
   },
-  topbar: { search: "Имя, CIF, кредит или телефон", businessDate: "Бизнес-дата", sourceRefreshed: "Источник обновлён", signOut: "Выйти", changePassword: "Сменить пароль", language: "Язык", demo: "ДЕМО", pilot: "ПИЛОТ · синтетика", integration: "ИНТЕГРАЦИЯ", workerOffline: "Фоновый сервис офлайн" },
+  topbar: { search: "Имя, CIF, кредит или телефон", businessDate: "Бизнес-дата", sourceRefreshed: "Источник обновлён", signOut: "Выйти", changePassword: "Сменить пароль", language: "Язык", demo: "ДЕМО", pilot: "ПИЛОТ · синтетика", integration: "ИНТЕГРАЦИЯ", workerOffline: "Фоновый сервис офлайн", notifications: "Уведомления" },
   common: { save: "Сохранить", cancel: "Отмена", loading: "Загрузка…", empty: "Нет данных", error: "Произошла ошибка", readOnly: "Только чтение", denied: "Нет прав для просмотра", stale: "Устаревшие данные", reason: "Причина", customer: "Клиент", loan: "Кредит", amount: "Сумма", status: "Статус", owner: "Владелец", date: "Дата", actions: "Действия", azn: "AZN", yes: "да", no: "нет", none: "Нет", open: "Открыть" },
   agent: {
     workspace: "Моё рабочее место",

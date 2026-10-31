@@ -17,6 +17,7 @@ const AGENT_NAV: NavGroup[] = [
     labelKey: "nav.myWorkspace",
     items: [
       { href: "/agent", labelKey: "nav.agent", screen: "S28A" },
+      { href: "/customers", labelKey: "nav.customers", screen: "S04", permission: "customer.read" },
       { href: "/agent/call", labelKey: "nav.agentCall", screen: "S28B" },
       { href: "/agent/follow-ups", labelKey: "nav.agentFollowUps", screen: "S07/S08" },
       { href: "/agent/results", labelKey: "nav.agentResults", screen: "S18" },

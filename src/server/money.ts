@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { formatMoneyText } from "@/lib/moneyFormat";
 
 // Calculation precision is deliberately higher than display precision; money is rounded only at
 // defined points (per installment component, per allocation) using half-up rounding to AZN cents.
@@ -49,12 +50,10 @@ export function toDbRate(value: DecimalLike | null | undefined): string {
   return dec(value).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6);
 }
 
-const aznFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Centralized AZN display formatting: 4,200.00 AZN. */
-export function formatAzn(value: DecimalLike | null | undefined, opts: { withCurrency?: boolean } = {}): string {
+/** Centralized AZN display formatting: 4,200.00 AZN (en) or 4 200,00 AZN (az/ru). */
+export function formatAzn(value: DecimalLike | null | undefined, opts: { withCurrency?: boolean; locale?: string } = {}): string {
   const n = money(value);
-  const text = aznFormatter.format(Number(n.toFixed(2)));
+  const text = formatMoneyText(Number(n.toFixed(2)), opts.locale);
   return opts.withCurrency === false ? text : `${text} AZN`;
 }
 

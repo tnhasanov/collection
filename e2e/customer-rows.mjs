@@ -1,6 +1,6 @@
 /**
  * One customer = one compact row (synthetic data): customer list and work queue at 1366×768, 1440×900 and 390×844.
- * Checks one row per customer id, one text line per cell, 44–48 px rows with 14 px text, no horizontal page scroll,
+ * Checks one row per customer id, one text line per cell, 28 px rows with 13 px text, no horizontal page scroll,
  * the detail panel (keyboard open, "N kredit" opens the loans section, Escape closes, focus and list position kept),
  * and that opening details claims nothing. Screenshots: docs/screenshots/customer-rows/after-*.png.
  */
@@ -40,7 +40,7 @@ async function measure(page, label) {
 }
 
 const browser = await launch();
-const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+const context = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: "az-AZ", timezoneId: "Asia/Baku" });
 const page = await context.newPage();
 await login(page, "lead");
 
@@ -59,7 +59,7 @@ for (const [w, h, tag] of [[1366, 768, "1366"], [1440, 900, "1440"], [390, 844, 
     check(`${name} ${tag}: every cell on one line`, m.wrappedCells === 0, `${m.wrappedCells} wrapped`);
     check(`${name} ${tag}: no horizontal page scroll`, !m.horizontalScroll);
     if (w >= 1366) {
-      check(`${name} ${tag}: rows 44–48 px, 14 px text`, m.rowHeightMin >= 44 && m.rowHeightMax <= 48 && m.nameFont === 14, `${m.rowHeightMin}-${m.rowHeightMax}px, ${m.nameFont}px`);
+      check(`${name} ${tag}: 28 px rows (+1 px separator), 13 px text`, m.rowHeightMin >= 28 && m.rowHeightMax <= 29 && m.nameFont === 13, `${m.rowHeightMin}-${m.rowHeightMax}px, ${m.nameFont}px`);
     }
   }
 }

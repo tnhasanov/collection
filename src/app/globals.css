@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-/* ATB Collections theme. Brand anchors #6F0BBB / #F4C900 / #34035D / #F8F0FE come from the public ATB
-   website stylesheet (verified 28 Oct 2026). Neutral and status tokens are application design choices.
+/* ATB Collections theme. Brand anchors #6F0BBB / #F4C900 / #34035D come from the public ATB website stylesheet
+   (verified 28 Oct 2026). Neutrals, selection and status colours follow the compact screen reference (31 Oct 2026):
+   purple for brand, primary actions and selection; neutral surfaces; red only for actionable errors.
    Type scale: body 14 · tables 13 · secondary 12 · h1 22 · h2 16 · KPI 24 · script 16. Weights 400/500/600.
    Spacing 4/8/12/16/24, radius 8px, controls 38-40px, tabular numerals everywhere. Font: self-hosted Inter
    Variable (@fontsource-variable/inter; latin + latin-ext subsets verified for Ə ə Ğ ğ İ ı Ö ö Ş ş Ç ç Ü ü ₼). */
@@ -29,21 +30,22 @@
   --text-3xl--line-height: 1.2;
   --color-brand: #6f0bbb;
   --color-brand-dark: #34035d;
-  --color-brand-light: #f8f0fe;
+  --color-brand-light: #f3ecfa;
   --color-yellow: #f4c900;
   --color-yellow-hover: #e4bb00;
   --color-yellow-light: #fdfbf0;
   --color-surface: #ffffff;
-  --color-canvas: #f7f7f7;
-  --color-ink: #251631;
-  --color-muted: #6b6277;
-  --color-line: #e4ddec;
-  --color-success: #16794b;
-  --color-success-bg: #eaf6ef;
-  --color-warning: #92621d;
-  --color-warning-bg: #fff3dc;
-  --color-danger: #a43649;
-  --color-danger-bg: #fbebef;
+  --color-canvas: #f5f6f9;
+  --color-sidebar: #fbfbfd;
+  --color-ink: #252235;
+  --color-muted: #746f82;
+  --color-line: #e7e5ed;
+  --color-success: #18725d;
+  --color-success-bg: #e8f3ef;
+  --color-warning: #946219;
+  --color-warning-bg: #fbf1e1;
+  --color-danger: #aa4053;
+  --color-danger-bg: #f9ebee;
   --color-info: #336eac;
   --color-info-bg: #eaf1f9;
   --font-sans: "Inter Variable", "Inter", "Noto Sans", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
@@ -80,25 +82,33 @@ body {
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
-    min-height: 38px;
+    @apply inline-flex items-center justify-center gap-2 rounded-md border px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+    min-height: 36px;
   }
   .btn-primary {
-    background: var(--color-yellow);
-    border-color: var(--color-yellow);
-    color: var(--color-brand-dark);
+    background: var(--color-brand);
+    border-color: var(--color-brand);
+    color: #fff;
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--color-yellow-hover);
-    border-color: var(--color-yellow-hover);
+    background: var(--color-brand-dark);
+    border-color: var(--color-brand-dark);
   }
   .btn-secondary {
     background: var(--color-surface);
     border-color: var(--color-line);
-    color: var(--color-brand);
+    color: var(--color-ink);
   }
   .btn-secondary:hover:not(:disabled) {
     background: var(--color-brand-light);
+  }
+  .btn-soft {
+    background: var(--color-brand-light);
+    border-color: var(--color-brand-light);
+    color: var(--color-brand);
+  }
+  .btn-soft:hover:not(:disabled) {
+    background: #eadcf7;
   }
   .btn-solid {
     background: var(--color-brand);
@@ -126,7 +136,16 @@ body {
   }
   .btn-sm {
     @apply px-2.5 py-1 text-xs;
-    min-height: 32px;
+    min-height: 30px;
+  }
+  /* Coarse pointers (touch) keep comfortable targets regardless of the compact desktop density. */
+  @media (pointer: coarse) {
+    .btn {
+      min-height: 44px;
+    }
+    .btn-sm {
+      min-height: 40px;
+    }
   }
 
   .card {
@@ -191,7 +210,7 @@ body {
   .textarea {
     @apply w-full rounded-md border bg-surface px-3 py-2 text-sm text-ink;
     border-color: var(--color-line);
-    min-height: 38px;
+    min-height: 36px;
   }
   .textarea {
     min-height: 80px;
@@ -241,34 +260,32 @@ body {
 
   /* Sidebar links: light readable labels on the deep purple sidebar; explicit colour on every state. */
   .nav-link {
-    @apply flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium;
-    color: rgba(255, 255, 255, 0.88);
-    min-height: 38px;
+    @apply flex items-center gap-2 rounded-md px-2 text-[13px] font-medium;
+    color: var(--color-muted);
+    min-height: 36px;
+  }
+  .nav-link svg {
+    @apply h-[18px] w-[18px] shrink-0;
   }
   .nav-link:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: #f1eff6;
+    color: var(--color-ink);
   }
   .nav-link:focus-visible {
-    outline: 3px solid var(--color-yellow);
-    outline-offset: -3px;
-    color: #ffffff;
+    outline: 2px solid var(--color-brand);
+    outline-offset: -2px;
   }
   .nav-link[aria-current="page"] {
-    background: var(--color-brand);
-    color: #ffffff;
-    box-shadow: inset 4px 0 0 var(--color-yellow);
+    background: var(--color-brand-light);
+    color: var(--color-brand);
   }
   .nav-link[aria-disabled="true"] {
-    color: rgba(255, 255, 255, 0.4);
+    color: #b9b4c4;
     pointer-events: none;
   }
-  .nav-link .nav-screen {
-    color: rgba(255, 255, 255, 0.45);
-  }
   .nav-group {
-    @apply mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider uppercase;
-    color: rgba(255, 255, 255, 0.62);
+    @apply mt-5 mb-1.5 px-2.5 text-[11px] font-medium tracking-wider uppercase;
+    color: var(--color-muted);
   }
 
   .callout {
@@ -292,10 +309,16 @@ body {
   }
 
   .page-kicker {
-    @apply text-[11px] font-bold tracking-wider uppercase text-brand;
+    @apply text-xs font-medium text-muted;
   }
   .page-title {
-    @apply text-2xl font-semibold tracking-tight text-ink;
+    @apply font-semibold tracking-tight text-ink;
+    font-size: 25px;
+    line-height: 1.2;
+  }
+  /* Worklists use a tighter header: 22px title, count line, then the table. */
+  .page-title-compact {
+    font-size: 22px;
   }
   .page-lead {
     @apply text-sm text-muted;
@@ -511,51 +534,67 @@ body {
   .status-pill .dot {
     @apply inline-block h-2.5 w-2.5 rounded-full;
   }
-  .stage {
+  /* One conversation card: completed stages as compact rows (icon · title · summary · Dəyiş), the current stage open. */
+  .mini-chip {
+    @apply inline-flex items-center rounded border bg-surface px-2 text-xs text-muted;
+    height: 22px;
+    border-color: var(--color-line);
+  }
+  .mini-chip:hover:not(:disabled) {
+    color: var(--color-brand);
+  }
+  .mini-chip[aria-pressed="true"] {
+    background: var(--color-brand-light);
+    border-color: transparent;
+    color: var(--color-brand);
+  }
+  @media (pointer: coarse) {
+    .mini-chip {
+      height: 36px;
+    }
+  }
+  .conv-card {
     @apply rounded-lg border bg-surface;
     border-color: var(--color-line);
   }
-  .stage + .stage {
-    margin-top: 12px;
+  .stage {
+    border-bottom: 1px solid var(--color-line);
+  }
+  .stage:last-child {
+    border-bottom: 0;
   }
   .stage-head {
-    @apply flex w-full items-center gap-3 px-4 text-left;
-    min-height: 52px;
+    @apply grid w-full items-center gap-x-3 px-6 text-left;
+    grid-template-columns: 22px minmax(120px, 180px) minmax(0, 1fr) auto;
+    min-height: 44px;
+  }
+  .stage[data-state="current"] .stage-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-top: 20px;
+    padding-bottom: 8px;
   }
   .stage-no {
-    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold;
-    background: var(--color-canvas);
+    @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-medium;
+    background: #f1f0f4;
     color: var(--color-muted);
-    border: 1px solid var(--color-line);
-  }
-  .stage[data-state="current"] .stage-no {
-    background: var(--color-brand);
-    border-color: var(--color-brand);
-    color: #fff;
   }
   .stage[data-state="done"] .stage-no {
     background: var(--color-success-bg);
-    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
     color: var(--color-success);
   }
-  .stage[data-state="current"] {
-    border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-line));
-  }
   .stage-body {
-    @apply space-y-4 px-4 pb-4;
+    @apply space-y-5 px-6 pb-6;
   }
   .script-passage {
-    @apply rounded-lg px-4 py-3;
-    background: #faf7fd;
-    border-left: 3px solid var(--color-brand);
-    font-size: 17px;
-    line-height: 1.65;
+    @apply py-1 pl-6;
+    border-left: 2px solid var(--color-brand);
+    font-size: 16px;
+    line-height: 1.6;
     color: var(--color-ink);
   }
   .script-var {
-    @apply rounded px-1 font-semibold;
-    background: var(--color-brand-light);
-    color: var(--color-brand-dark);
+    @apply font-medium;
+    color: var(--color-ink);
   }
   .script-var-missing {
     @apply rounded px-1.5 font-medium;
@@ -570,10 +609,9 @@ body {
     @apply mt-1 text-xs text-muted;
   }
   .slim-bar {
-    @apply sticky bottom-0 z-20 flex flex-wrap items-center gap-3 rounded-lg border bg-surface px-4 py-2;
+    @apply sticky bottom-0 z-20 flex flex-wrap items-center gap-x-5 gap-y-3 border-t py-4;
     border-color: var(--color-line);
-    box-shadow: 0 -6px 16px -12px rgba(37, 22, 49, 0.35);
-    min-height: 60px;
+    background: var(--color-canvas);
   }
   .panel-tabs [role="tablist"] {
     @apply gap-1;
@@ -606,20 +644,25 @@ html:has(.slim-bar) {
   scroll-padding-bottom: 96px;
 }
 
-/* One customer = one compact row (customer list, work queue) and the right-side customer detail panel. */
+/* One customer = one compact row (customer list, work queue, dashboard worklists) and the right-side detail panel.
+   Desktop density: 13px text on a 16px line with 6px vertical padding = 28px rows; 12px headers and secondary values;
+   16px status badges and icons. Coarse pointers (touch) get comfortable 44px rows. */
 @layer components {
   .rows-table {
     width: 100%;
     table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 16px;
     font-variant-numeric: tabular-nums;
   }
   .rows-table th {
-    @apply bg-canvas px-3 text-left font-medium text-muted;
-    font-size: 13px;
-    height: 40px;
+    @apply px-3 text-left font-normal text-muted;
+    font-size: 12px;
+    line-height: 16px;
+    padding-top: 8px;
+    padding-bottom: 8px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -627,56 +670,143 @@ html:has(.slim-bar) {
   }
   .rows-table td {
     @apply px-3 text-ink;
-    height: 46px;
+    /* 6px + 16px line + 5px + 1px separator = 28px row */
+    padding-top: 6px;
+    padding-bottom: 5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: middle;
     border-bottom: 1px solid var(--color-line);
   }
+  .rows-table tbody tr:last-child td {
+    border-bottom: 0;
+    padding-bottom: 6px;
+  }
+  /* 16px badges and icons fill the 16px line exactly; they never enlarge the row. */
+  .rows-table .status-chip,
+  .rows-table .row-icon {
+    vertical-align: top;
+  }
+  .rows-table svg {
+    display: block;
+  }
   .rows-table tbody tr:hover td {
-    background: #fbf8fe;
+    background: #faf9fc;
   }
   .rows-table tbody tr[data-selected="true"] td {
     background: var(--color-brand-light);
   }
   .rows-table tbody tr[data-selected="true"] td:first-child {
-    box-shadow: inset 3px 0 0 var(--color-brand);
+    box-shadow: inset 2px 0 0 var(--color-brand);
   }
   .rows-table .num {
     text-align: right;
   }
+  .rows-table .secondary {
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+  @media (pointer: coarse) {
+    .rows-table td {
+      padding-top: 14px;
+      padding-bottom: 14px;
+    }
+  }
   .cell-button {
-    @apply rounded-sm text-left font-medium;
+    @apply rounded-sm text-left;
     display: block;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--color-brand);
+    color: inherit;
+    font: inherit;
+    line-height: 16px;
     background: none;
     border: 0;
     padding: 0;
     cursor: pointer;
   }
   .cell-button:hover {
+    color: var(--color-brand);
     text-decoration: underline;
   }
   .cell-button:focus-visible,
-  .rows-table a:focus-visible {
+  .rows-table a:focus-visible,
+  .row-icon:focus-visible {
     outline: 2px solid var(--color-brand);
-    outline-offset: 2px;
+    outline-offset: 1px;
+  }
+  .row-icon {
+    @apply inline-flex items-center justify-center rounded-sm text-muted;
+    width: 20px;
+    height: 16px;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .row-icon:hover {
+    color: var(--color-brand);
   }
   .status-chip {
-    @apply inline-flex max-w-full items-center gap-1.5 rounded-md px-2 text-[13px] font-medium;
-    height: 26px;
+    @apply inline-flex max-w-full items-center rounded px-1.5 font-medium;
+    height: 16px;
+    font-size: 12px;
+    line-height: 16px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .chip-brand {
+    background: var(--color-brand-light);
+    color: var(--color-brand);
+  }
+  .chip-success {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+  }
+  .chip-warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+  }
+  .chip-neutral {
+    background: #f1f0f4;
+    color: var(--color-muted);
+  }
+  /* Segmented tabs and compact worklist controls (28px). */
+  .seg {
+    @apply inline-flex items-center gap-0.5 rounded-md border bg-surface p-0.5;
+    border-color: var(--color-line);
+  }
+  .seg a {
+    @apply rounded px-3 text-sm text-muted;
+    line-height: 24px;
+    text-decoration: none;
+  }
+  .seg a:hover {
+    color: var(--color-ink);
+  }
+  .seg a[aria-current="page"] {
+    background: var(--color-brand-light);
+    color: var(--color-brand);
+  }
+  .select-compact {
+    @apply rounded-md border bg-surface pr-7 pl-2.5 text-sm text-ink;
+    height: 28px;
+    border-color: var(--color-line);
+  }
+  @media (pointer: coarse) {
+    .seg a {
+      line-height: 36px;
+    }
+    .select-compact {
+      height: 40px;
+    }
+  }
   .detail-panel {
-    @apply fixed top-0 right-0 bottom-0 z-40 flex flex-col border-l bg-surface;
-    width: min(460px, 100vw);
+    @apply fixed top-0 right-0 bottom-0 z-40 flex flex-col border-l bg-surface text-sm lg:top-14;
+    width: min(440px, 100vw);
     border-color: var(--color-line);
     box-shadow: -12px 0 32px -18px rgba(37, 22, 49, 0.45);
   }
@@ -684,7 +814,7 @@ html:has(.slim-bar) {
     border-top: 1px solid var(--color-line);
   }
   .detail-panel h3 {
-    @apply text-sm font-semibold text-ink;
+    @apply text-base font-medium text-ink;
   }
   .detail-panel h3:focus {
     outline: none;

@@ -47,10 +47,10 @@ export function ActionBar({ ctx, locale, draft, preview, callActive, onSaved }: 
   }
 
   const promise = isPromise(draft.businessOutcome) ? draft.ptp : null;
+  // Identity is shown in the conversation; the line says what will be stored: outcome, amount, date.
   const parts = [
-    draft.identityStatus ? ot(locale, `id.${draft.identityStatus}`) : null,
-    draft.businessOutcome ? T(`agent.outcomes.${preview?.derivedOutcome ?? draft.businessOutcome}`) : A("bar.notSelected"),
-    promise?.amount ? fmtAzn(promise.amount) : null,
+    draft.businessOutcome ? T(`agent.outcomes.${preview?.derivedOutcome ?? draft.businessOutcome}`) : draft.identityStatus ? ot(locale, `id.${draft.identityStatus}`) : A("bar.notSelected"),
+    promise?.amount ? fmtAzn(promise.amount, true, locale) : null,
     promise?.deadlineDate ? fmtDate(promise.deadlineDate, locale) : null,
     draft.businessOutcome === "CALLBACK_REQUESTED" && draft.callback?.dueAt ? fmtDateTime(draft.callback.dueAt, false, locale) : null,
   ].filter(Boolean);
@@ -61,29 +61,30 @@ export function ActionBar({ ctx, locale, draft, preview, callActive, onSaved }: 
     <>
       <section className="slim-bar" aria-label={A("bar.narrative")} data-testid="review-strip">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm" data-testid="outcome-line">
-            <span className="font-semibold text-ink">{parts.join(" · ")}</span>
-            {next && <span className="text-muted"> · {next}</span>}
-            {preview?.coverage === "PARTIAL" && <Badge tone="warning" className="ml-2">{A("conv.partialShort")}</Badge>}
+          <p className="truncate text-base font-medium text-ink" data-testid="outcome-line" title={[parts.join(" · "), next].filter(Boolean).join(" · ")}>
+            {parts.join(" · ")}
+            {preview?.coverage === "PARTIAL" && <span className="status-chip chip-warning ml-2 align-middle">{A("conv.partialShort")}</span>}
           </p>
-          {(blocking.length > 0 || error) && (
-            <p className="truncate text-[13px] text-danger" data-testid="preview-errors">
+          {blocking.length > 0 || error ? (
+            <p className="mt-0.5 truncate text-[13px] text-danger" data-testid="preview-errors">
               {error ?? blocking[0]}
               {blocking.length > 1 ? ` (+${blocking.length - 1})` : ""}
             </p>
+          ) : (
+            <p className="mt-0.5 truncate text-[13px] text-muted" data-testid="outcome-hint">{callActive ? A("bar.endFirst") : next}</p>
           )}
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)} disabled={!preview && !error} data-testid="outcome-details">
+        <button type="button" className="text-sm text-brand hover:underline disabled:text-muted disabled:no-underline" onClick={() => setOpen(true)} disabled={!preview && !error} data-testid="outcome-details">
           {A("bar.details")}
         </button>
         {saved ? (
           <Badge tone="success">{A("bar.saved")} · {A("bar.waitingAck")}</Badge>
         ) : (
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
-            <Button variant="secondary" className="whitespace-normal leading-tight sm:whitespace-nowrap" disabled={callActive || !ready || !!saving} title={disabledReason} onClick={() => save(false)} data-testid="save-pause">
+          <div className="grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto sm:items-center">
+            <Button variant="soft" className="whitespace-normal leading-tight sm:min-w-44 sm:whitespace-nowrap" disabled={callActive || !ready || !!saving} title={disabledReason} onClick={() => save(false)} data-testid="save-pause">
               {saving === "pause" ? A("bar.saving") : A("bar.savePause")}
             </Button>
-            <Button variant="primary" className="whitespace-normal leading-tight sm:whitespace-nowrap" disabled={callActive || !ready || !!saving} title={disabledReason} onClick={() => save(true)} data-testid="save-next">
+            <Button variant="primary" className="whitespace-normal leading-tight sm:min-w-56 sm:whitespace-nowrap" disabled={callActive || !ready || !!saving} title={disabledReason} onClick={() => save(true)} data-testid="save-next">
               {saving === "next" ? A("bar.saving") : A("bar.saveNext")}
             </Button>
           </div>

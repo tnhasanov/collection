@@ -1,25 +1,18 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
-import { fmtAzn, fmtDate } from "@/lib/format";
+import { fmtAzn, fmtDate, fmtDateTime } from "@/lib/format";
 import type { Locale } from "@/i18n/dictionaries";
 import { at } from "@/i18n/agentText";
 import type { JsonOf } from "@/components/agent/types";
 import type { CustomerRow } from "@/server/modules/customers/customerListService";
-import { CustomerDetailPanel, workLabel, workTone, type PanelSection } from "@/components/customers/CustomerDetailPanel";
+import { CustomerDetailPanel, workChip, type PanelSection } from "@/components/customers/CustomerDetailPanel";
 
 type Row = JsonOf<CustomerRow>;
 
-const TONE_CLASS: Record<string, string> = {
-  info: "bg-info-bg text-info",
-  success: "bg-success-bg text-success",
-  warning: "bg-warning-bg text-warning",
-  neutral: "bg-canvas text-ink",
-};
-
 /**
- * One customer = one compact row: name, CIF, loan count, total overdue, highest DPD and the next work, each on a single
- * line. Long values are truncated with the full text in a tooltip. The name (or the loan count, or the details button)
- * opens the read-only detail panel; the list keeps its position and highlights the selected customer.
+ * One customer = one compact row (28 px on desktop): name, CIF, loan count, total overdue, highest DPD and the next
+ * work, each on one line. Long values are truncated with the full text in a tooltip and in the detail panel. The name,
+ * the loan count, "+N" or the row arrow open the read-only panel; the list keeps its position and selection.
  */
 export function CustomerRowsTable({ rows, locale, variant, caption }: { rows: Row[]; locale: Locale; variant: "customers" | "queue"; caption: string }) {
   const A = (k: string, v?: Record<string, string | number | null>) => at(locale, k, v);
@@ -34,31 +27,31 @@ export function CustomerRowsTable({ rows, locale, variant, caption }: { rows: Ro
     setOpen({ id: row.id, name: row.displayName, section });
   };
   const close = useCallback(() => {
-    // Back to where the user was: the button that opened the panel, in an unchanged list.
+    // Back to where the user was: the control that opened the panel, in an unchanged list.
     trigger.current?.focus({ preventScroll: true });
     setOpen(null);
   }, []);
+  const loansText = (n: number) => (n === 1 ? A("cl.loans1") : A("cl.loansN", { n }));
 
   const status = (r: Row) => {
     if (r.next) {
-      const label = workLabel(locale, r.next.code, r.next.dueAt);
-      const reasons = r.next.reasons.map((x) => A(`pol.${x}`)).join(", ");
-      const full = [label, reasons].filter(Boolean).join(" · ");
+      const label = A(`cl.work.${r.next.code}`);
+      const full = [label, r.next.dueAt ? A("cl.dueTitle", { date: fmtDateTime(r.next.dueAt, false, locale) }) : null, r.next.reasons.map((x) => A(`pol.${x}`)).join(", ") || null].filter(Boolean).join(" · ");
       return (
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={`status-chip ${TONE_CLASS[workTone(r.next.code)] ?? TONE_CLASS.neutral}`} title={full} data-testid="row-next">
+          <span className={`status-chip ${workChip(r.next.code)}`} title={full} data-testid="row-next">
             {label}
           </span>
           {r.openWork > 1 && (
-            <button type="button" className="cell-button shrink-0 text-[13px]" title={A("cl.moreTitle", { n: r.openWork - 1 })} aria-label={`${r.displayName}: ${A("cl.moreTitle", { n: r.openWork - 1 })}`} onClick={(e) => show(r, "work", e.currentTarget)} data-testid="row-more-work">
+            <button type="button" className="cell-button shrink-0 text-[12px] leading-4 text-muted" title={A("cl.moreTitle", { n: r.openWork - 1 })} aria-label={`${r.displayName}: ${A("cl.moreTitle", { n: r.openWork - 1 })}`} onClick={(e) => show(r, "work", e.currentTarget)} data-testid="row-more-work">
               {A("cl.more", { n: r.openWork - 1 })}
             </button>
           )}
         </span>
       );
     }
-    if (r.promise) return <span className="status-chip bg-info-bg text-info" title={A(`ps.${r.promise.status}`)}>{A("cl.promise", { date: fmtDate(r.promise.deadlineDate, locale) })}</span>;
-    return <span className="text-muted">{A("cl.noWork")}</span>;
+    if (r.promise) return <span className="status-chip chip-success" title={`${A(`ps.${r.promise.status}`)} · ${fmtDate(r.promise.deadlineDate, locale)}`}>{A("cl.promiseShort")}</span>;
+    return <span className="block truncate text-[12px] text-muted">{A("cl.noWork")}</span>;
   };
 
   return (
@@ -66,14 +59,14 @@ export function CustomerRowsTable({ rows, locale, variant, caption }: { rows: Ro
       <table className="rows-table" data-testid="customer-rows">
         <caption className="sr-only">{caption}</caption>
         <colgroup>
-          {queue && <col className="hidden w-[52px] md:table-column" />}
+          {queue && <col className="hidden w-[48px] md:table-column" />}
           <col />
-          <col className="hidden w-[132px] md:table-column" />
-          <col className="hidden w-[104px] md:table-column" />
-          <col className="w-[88px] md:w-[132px]" />
-          <col className="hidden w-[160px] md:table-column" />
-          <col className="w-[132px] md:w-[236px]" />
-          <col className="hidden w-[60px] md:table-column" />
+          <col className="hidden w-[128px] md:table-column" />
+          <col className="hidden w-[72px] md:table-column" />
+          <col className="w-[96px] md:w-[136px]" />
+          <col className="hidden w-[88px] md:table-column" />
+          <col className="w-[124px] md:w-[216px]" />
+          <col className="hidden w-[40px] md:table-column" />
         </colgroup>
         <thead>
           <tr>
@@ -100,27 +93,27 @@ export function CustomerRowsTable({ rows, locale, variant, caption }: { rows: Ro
               }}
               className="cursor-pointer"
             >
-              {queue && <td className="hidden text-muted md:table-cell">{r.rank ?? "—"}</td>}
+              {queue && <td className="secondary hidden md:table-cell">{r.rank ?? "—"}</td>}
               <td>
                 <button type="button" className="cell-button" title={r.displayName} onClick={(e) => show(r, "summary", e.currentTarget)} aria-haspopup="dialog" data-testid="row-open">
                   {r.displayName}
                 </button>
               </td>
-              <td className="hidden text-muted md:table-cell" title={r.cif}>{r.cif}</td>
+              <td className="secondary hidden md:table-cell" title={r.cif}>{r.cif}</td>
               <td className="num hidden md:table-cell">
-                <button type="button" className="cell-button ml-auto" onClick={(e) => show(r, "loans", e.currentTarget)} aria-label={`${r.displayName}: ${r.loans === 1 ? A("cl.loans1") : A("cl.loansN", { n: r.loans })}`} data-testid="row-loans">
-                  {r.loans === 1 ? A("cl.loans1") : A("cl.loansN", { n: r.loans })}
+                <button type="button" className="cell-button ml-auto" title={loansText(r.loans)} onClick={(e) => show(r, "loans", e.currentTarget)} aria-label={`${r.displayName}: ${loansText(r.loans)}`} data-testid="row-loans">
+                  {r.loans}
                 </button>
               </td>
-              <td className={`num font-medium ${Number(r.totalOverdue) > 0 ? "text-danger" : "text-muted"}`} data-testid="row-overdue">
-                <span className="md:hidden" title={fmtAzn(r.totalOverdue)}>{fmtAzn(r.totalOverdue, false)}</span>
-                <span className="hidden md:inline">{fmtAzn(r.totalOverdue)}</span>
+              <td className="num" data-testid="row-overdue" title={fmtAzn(r.totalOverdue, true, locale)}>
+                <span className="md:hidden">{fmtAzn(r.totalOverdue, false, locale)}</span>
+                <span className="hidden md:inline">{fmtAzn(r.totalOverdue, true, locale)}</span>
               </td>
               <td className="num hidden md:table-cell" data-testid="row-dpd">{r.maxDpd}</td>
               <td>{status(r)}</td>
               <td className="hidden text-right md:table-cell" style={{ textOverflow: "clip" }}>
-                <button type="button" className="btn btn-ghost btn-sm px-2" onClick={(e) => show(r, "summary", e.currentTarget)} aria-label={`${A("cl.col.details")}: ${r.displayName}`} title={A("cl.col.details")} data-testid="row-details">
-                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <button type="button" className="row-icon" onClick={(e) => show(r, "summary", e.currentTarget)} aria-label={`${A("cl.col.details")}: ${r.displayName}`} title={A("cl.col.details")} data-testid="row-details">
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
               </td>
             </tr>

@@ -34,14 +34,14 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   const workerOnline = !!worker && wallClock.getTime() - worker.lastSeenAt.getTime() < 60_000;
   return (
     <div className="flex min-h-screen">
-      <Sidebar groups={navForRole(user.role)} locale={locale} />
+      <Sidebar groups={navForRole(user.role)} locale={locale} user={{ displayName: user.displayName, roleLabel: at(locale, `role.${user.role}`) }} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar locale={locale} user={{ displayName: user.displayName, roleLabel: at(locale, `role.${user.role}`), username: user.username }} mode={mode} businessDate={formatDate(bd, locale)} freshness={freshness} notifications={unread} demoUsers={demoUsers.map((u) => ({ username: u.username, label: `${u.displayName} · ${ROLE_LABELS[u.role]}` }))} workerOnline={workerOnline} />
-        <main className="flex-1 px-4 py-4 lg:px-6">
+        <main className="flex-1 px-4 py-6 lg:px-8">
           {hasPermission(user.role, "agent.desktop") && <ActiveCallIndicator locale={locale} />}
           {children}
         </main>
-        <footer className="px-4 py-3 text-[11px] text-muted lg:px-6">ATB Collections · {t(locale, "app.synthetic")} · Asia/Baku · AZN</footer>
+        <footer className="flex justify-between px-4 py-3 text-xs text-muted lg:px-8"><span>ATB Collections</span><span>{t(locale, "app.synthetic")} · Asia/Baku · AZN</span></footer>
       </div>
     </div>
   );

@@ -2,13 +2,15 @@ import { DateTime } from "luxon";
 
 /** Client-safe formatting helpers (Asia/Baku, AZN). Server code uses the equivalents in server/money.ts and server/dates.ts. */
 export const BAKU = "Asia/Baku";
-const nf = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { formatMoneyText } from "@/lib/moneyFormat";
 
-export function fmtAzn(v: string | number | null | undefined, withCurrency = true): string {
+/** "8 400,00 AZN" (az/ru) or "8,400.00 AZN" (en). */
+export function fmtAzn(v: string | number | null | undefined, withCurrency = true, locale?: string): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
-  return withCurrency ? `${nf.format(n)} AZN` : nf.format(n);
+  const text = formatMoneyText(n, locale);
+  return withCurrency ? `${text} AZN` : text;
 }
 
 export function fmtPct(v: number | string | null | undefined, digits = 1): string {

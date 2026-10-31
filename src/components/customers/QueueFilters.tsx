@@ -16,9 +16,9 @@ export function QueueFilters({ current, locale }: { current: Record<string, stri
     router.push(`/work-queue?${q.toString()}`);
   };
   const sel = (id: string, label: string, options: [string, string][]) => (
-    <label className="text-[13px] text-muted">
+    <label className="text-xs text-muted">
       <span className="mb-1 block">{label}</span>
-      <select className="select" id={id} value={String(current[id] ?? "")} onChange={(e) => update(id, e.target.value)} data-testid={`qf-${id}`}>
+      <select className="select-compact w-full" id={id} value={String(current[id] ?? "")} onChange={(e) => update(id, e.target.value)} data-testid={`qf-${id}`}>
         {options.map(([v, l]) => (
           <option key={v} value={v}>
             {l}

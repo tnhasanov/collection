@@ -3,6 +3,7 @@ import { formatDate, formatBakuDateTime } from "@/server/dates";
 import type { OutcomeInput } from "@/server/modules/interactions/outcomeSchema";
 import { ot } from "@/i18n/outcomeText";
 import type { Locale } from "@/i18n/dictionaries";
+import { formatMoneyText } from "@/lib/moneyFormat";
 
 /**
  * Deterministic factual summary. Built only from the selected facts; it labels provenance (provider-observed,
@@ -29,6 +30,7 @@ export function deriveCoverage(input: OutcomeInput, customer: SummaryCustomerCon
 
 export function buildFactualSummary(input: OutcomeInput, ctx: { technicalResult: string | null; customer: SummaryCustomerContext | null; policyVersion: string; nextActionLabel: string; routineCallsBlockedUntil: Date | null; callbackAt: Date | null; reconciliationHoldUntil: Date | null; locale?: Locale }): string {
   const L = ctx.locale ?? "en";
+  const fmt = (v: string) => fmtIn(L, v);
   const T = (key: string, vars?: Record<string, string | number | null | undefined>) => ot(L, key, vars);
   const d = (iso: string | Date) => formatDate(typeof iso === "string" ? iso.slice(0, 10) : iso, L);
   const dt = (at: string | Date) => formatBakuDateTime(at, { locale: L });
@@ -43,7 +45,7 @@ export function buildFactualSummary(input: OutcomeInput, ctx: { technicalResult:
     case "PTP":
     case "PARTIAL_COMMITMENT":
       if (input.ptp) {
-        const cov = coverage === "FULL" ? T("s.covFull") : coverage === "PARTIAL" ? T("s.covPartial", { amount: fmt(input.ptp.amount), covered: fmt(coveredOverdue ?? "0"), rest: money(dec(coveredOverdue ?? "0").minus(input.ptp.amount)).toFixed(2) }) : T("s.covNothing");
+        const cov = coverage === "FULL" ? T("s.covFull") : coverage === "PARTIAL" ? T("s.covPartial", { amount: fmt(input.ptp.amount), covered: fmt(coveredOverdue ?? "0"), rest: fmt(money(dec(coveredOverdue ?? "0").minus(input.ptp.amount)).toFixed(2)) }) : T("s.covNothing");
         parts.push(T("s.ptp", { amount: fmt(input.ptp.amount), date: d(input.ptp.deadlineDate), confirmed: input.ptp.customerConfirmed ? T("s.ptpConfirmed") : T("s.ptpNotConfirmed"), coverage: cov }));
       }
       break;
@@ -88,8 +90,10 @@ export function buildFactualSummary(input: OutcomeInput, ctx: { technicalResult:
   return parts.join(" ");
 }
 
-function fmt(v: string) {
-  return money(dec(v)).toFixed(2);
+/** English keeps the plain 1234.50 form used by stored English summaries; az/ru use 1 234,50. */
+function fmtIn(locale: Locale, v: string) {
+  const fixed = money(dec(v)).toFixed(2);
+  return locale === "az" || locale === "ru" ? formatMoneyText(Number(fixed), locale) : fixed;
 }
 
 /** English next-action phrases (kept for callers that rebuild an English summary). */

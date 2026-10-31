@@ -144,10 +144,10 @@ export function updatePromise(draft: OutcomeDraft, patch: Partial<NonNullable<Ou
 }
 
 /** Values bound into the script. Missing promise values stay null so the script shows a visible placeholder. */
-export function scriptValues(draft: OutcomeDraft, formatDate: (iso: string) => string): { promiseAmount: string | null; promiseDate: string | null } {
+export function scriptValues(draft: OutcomeDraft, formatDate: (iso: string) => string, formatAmount: (n: number) => string = (n) => n.toFixed(2)): { promiseAmount: string | null; promiseDate: string | null } {
   const p = isPromise(draft.businessOutcome) ? draft.ptp : null;
   return {
-    promiseAmount: p?.amount && Number(p.amount) > 0 ? Number(p.amount).toFixed(2) : null,
+    promiseAmount: p?.amount && Number(p.amount) > 0 ? formatAmount(Number(p.amount)) : null,
     promiseDate: p?.deadlineDate ? formatDate(p.deadlineDate) : null,
   };
 }

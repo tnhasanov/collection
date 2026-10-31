@@ -1,6 +1,23 @@
 # Build status — ATB Collections (synthetic demo)
 
-Last updated: 30 Oct 2026 (one customer = one row; agent workspace redesign and call-lifecycle repair) · branch `claude/bold-bohr-njc446`
+Last updated: 31 Oct 2026 (compact screens; one customer = one row; agent workspace redesign and call-lifecycle repair) · branch `claude/bold-bohr-njc446`
+
+## Compact screens from the design reference (31 Oct 2026)
+
+Implemented from the four-screen reference pack (customer list, agent dashboard, current call, customer details;
+1440×900) in the existing application — no business rule, calculation, permission or workflow changed.
+
+| Area | What changed | Where |
+|---|---|---|
+| Shell | Light 176 px sidebar with icons, grouped navigation and the signed-in user; 56 px topbar (search, business date, mode, bell, avatar menu with language, demo role switch, password, sign-out; freshness and worker warnings only when not healthy); 32 px workspace padding; reference neutrals and status colours with the official ATB purple; purple primary actions | `shell/Sidebar.tsx`, `shell/Topbar.tsx`, `shell/icons.tsx`, `globals.css` |
+| Numbers | Azerbaijani/Russian amounts as 8 400,00 AZN (no-break space, decimal comma); English unchanged; stored and submitted values never formatted; English stored summaries unchanged | `lib/moneyFormat.ts`, `lib/format.ts`, `server/money.ts`, `interactions/summary.ts` |
+| Customer list | 22 px title with count; tabs Hamısı / Geri zənglər / Vədlər (server-side filters before paging); compact show and sort controls applied on change; 28 px rows at 13/16 px, 12 px headers, 16 px badges and row icons; footer "1–25 / N müştəri" with page navigation; comfortable 44 px rows on touch screens | `customers/page.tsx`, `customers/ListControls.tsx`, `customers/CustomerRowsTable.tsx`, `customers/RowsPager.tsx` |
+| Customer details | Drawer below the topbar: overdue at 30 px with the DPD badge, individual loans (principal + interest split, outstanding, next due, link to the loan page), next work with blocker and owner, other open work, last conversation with its generated summary, active promises with covered loans, full-width "Tam profili aç"; still read-only | `customers/CustomerDetailPanel.tsx`, `customerListService.customerOverview` |
+| Dashboard | Date line, shift state with "Hazır ol" (connects, waits for the provider's phone confirmation, requests Ready, opens the call workspace); four KPIs; due work table (28 px rows; blocker on hover, "Gözləyir" badge); queue card (callable work for the agent's languages and skill); attention card (broken promises, payment claims, unfinished outcomes); recent outcomes | `(shell)/agent/page.tsx`, `agent/DashboardShift.tsx`, `agent/dashboardService.ts` |
+| Current call | Title header (name, CIF, language, loan count), status and timer, "Yardım" (data freshness, contact status, check call status, team-lead guidance, telephony mode, shift actions); controls row; one conversation card with completed steps as compact rows and the open step with its outcome badge; amount and date side by side (shortcuts kept as small chips, amount shown as 137,50 outside editing); script quote at 16 px; right card with overdue at 30 px, key facts, tabs Məlumat / Kreditlər / Tarixçə / Əlaqələr and the payment-instructions button; bottom strip with the outcome line, hint and both save buttons (disabled until the provider confirms the end) | `agent/CallHeader.tsx`, `agent/ConversationFlow.tsx`, `agent/CustomerPanel.tsx`, `agent/ActionBar.tsx` |
+
+Screens and references side by side: `docs/screenshots/compact/` (`01`–`04` at 1440, 1366 and 390 px, and the
+`reference-*` images). The native date input follows the browser's locale (dd.mm.yyyy in an Azerbaijani browser).
 
 ## One customer = one compact row (30 Oct 2026)
 
@@ -104,17 +121,17 @@ handover: `MORNING_HANDOVER.md`.
 | `npm run measure` | interaction counts per scenario (see evidence file) |
 | `npm run screenshots:agent` | home / reserved / live / live-captured / after-call work at 1440 and 1024 px |
 
-## Executed checks (this build, 30 Oct 2026, local container)
+## Executed checks (this build, 31 Oct 2026, local container)
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | clean |
 | `npm run lint` | clean |
-| `npm test` (unit) | 75 passing (9 files) — incl. `conversation.test.ts` and `nextWork.test.ts` (workflow order of a customer's open work) |
+| `npm test` (unit) | 78 passing (10 files) — incl. `conversation.test.ts`, `nextWork.test.ts` and `moneyFormat.test.ts` (8 400,00 AZN in az/ru, English unchanged, script amount formatted while the draft keeps the plain value) |
 | `npm run test:integration` | 56 passing (6 files) — incl. `customerRows.test.ts`: two loans → one row (150.35 = 100.10 + 50.25, closed loan excluded, max DPD 40), same-name customers separate, distinct-customer totals and non-overlapping pages, sort follows displayed values, scope before aggregation, grouped queue (one row per customer across pages, header = distinct customers), read-only overview (no claim, no reservation) |
 | `npx next build` | succeeds |
-| `node e2e/customer-rows.mjs` | 32/32 checks: one row per customer id, no wrapped cells, 46 px rows with 14 px text at 1366/1440, no horizontal scroll at 1366/1440/390, the customer with a call and a callback once across all queue pages, panel keyboard/Escape/focus/position, "N kredit" opens the loans, "+N" lists other work, nothing claimed |
-| `node e2e/workspace-redesign.mjs` | 26/26 checks (agent call flow and drafts unchanged) |
+| `node e2e/customer-rows.mjs` | 32/32 checks: one row per customer id, no wrapped cells, 28 px rows with 13 px text at 1366/1440, no horizontal scroll at 1366/1440/390, the customer with a call and a callback once across all queue pages, panel keyboard/Escape/focus/position, "N kredit" opens the loans, "+N" lists other work, nothing claimed |
+| `node e2e/workspace-redesign.mjs` | 26/26 checks (agent call flow, drafts, script amount 137,50, sticky bar never over a focused input; az-AZ browser locale) |
 
 ## Scope status by screen
 

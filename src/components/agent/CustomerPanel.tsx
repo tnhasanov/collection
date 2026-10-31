@@ -17,11 +17,13 @@ export function paymentStateLabel(locale: Locale, status: string, reconciliation
   return t(locale, `agent.paymentStates.${status}`);
 }
 
-function Kv({ label, children, strong, row }: { label: string; children: React.ReactNode; strong?: boolean; row?: boolean }) {
+const TIME = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Baku" });
+
+function Line({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={row ? "kv-row" : "kv"}>
-      <span className="kv-label">{label}</span>
-      <span className={strong ? "kv-value font-semibold" : "kv-value"}>{children}</span>
+    <div className="flex items-baseline justify-between gap-4 py-1.5">
+      <span className="text-muted">{label}</span>
+      <span className="min-w-0 truncate text-right text-ink tabular-nums">{children}</span>
     </div>
   );
 }
@@ -52,7 +54,7 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
     ...(c.customer.specialHandling ? [`${A("cust.special")}${c.customer.specialHandlingReason ? `: ${c.customer.specialHandlingReason}` : ""}`] : []),
     ...c.restrictions.openDisputes.map((d) => `${A("cust.dispute")}: ${d.reason}`),
     ...c.restrictions.supportCases.map((s) => `${ot(locale, `st.${s.type}`)}: ${s.reason}`),
-    ...c.restrictions.paidClaims.map((p) => `${A("cust.claim")}${p.claimedAmount ? ` · ${fmtAzn(p.claimedAmount)}` : ""}`),
+    ...c.restrictions.paidClaims.map((p) => `${A("cust.claim")}${p.claimedAmount ? ` · ${fmtAzn(p.claimedAmount, true, locale)}` : ""}`),
   ];
   const promiseStatus = (s: string) => A(`ps.${s}`);
   const kindLabel = (k: string) => (A(`msg.kind.${k}`) === `msg.kind.${k}` ? "SMS" : A(`msg.kind.${k}`));
@@ -67,7 +69,7 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
       title: A("tl.call"),
       text: [i.technicalResult ? ot(locale, `tr.${i.technicalResult}`) : null, i.identityStatus ? ot(locale, `id.${i.identityStatus}`) : null, i.businessOutcome ? T(`agent.outcomes.${i.businessOutcome}`) : i.status === "OPEN" || i.status === "DRAFT" ? A("tl.open") : null, i.agentName].filter(Boolean).join(" · "),
     })),
-    ...c.payments.map((p) => ({ key: `p-${p.id}`, at: p.eventAt, tone: "bg-success", title: A("tl.payment"), text: `${fmtAzn(p.amount)} · ${paymentStateLabel(locale, p.status, p.reconciliation)}` })),
+    ...c.payments.map((p) => ({ key: `p-${p.id}`, at: p.eventAt, tone: "bg-success", title: A("tl.payment"), text: `${fmtAzn(p.amount, true, locale)} · ${paymentStateLabel(locale, p.status, p.reconciliation)}` })),
     ...c.promises.map((p) => ({ key: `r-${p.id}`, at: p.createdAt, tone: "bg-info", title: A("tl.promise"), text: A("cust.promiseLine", { amount: fmtAzn(p.amount), date: fmtD(p.deadlineDate), status: promiseStatus(p.status) }) })),
     ...c.messages.map((m) => ({ key: `m-${m.id}`, at: m.requestedAt, tone: "bg-muted", title: A("tl.message"), text: `${kindLabel(m.kind)} · ${A(`msg.${m.status}`)}` })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
@@ -84,63 +86,85 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
 
   return (
     <div className="panel" data-testid="customer-panel">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-line p-4" data-testid="customer-summary">
-        <Kv label={T("agent.facts.principal")}>{fmtAzn(c.summary.principalOutstanding)}</Kv>
-        <Kv label={T("agent.facts.nextInstallment")}>{c.summary.nextDue ? `${fmtD(c.summary.nextDue.date)} · ${fmtAzn(c.summary.nextDue.amount)}` : "—"}</Kv>
-        <Kv label={T("agent.facts.lastPayment")}>{c.summary.lastVerifiedPayment ? `${fmtAzn(c.summary.lastVerifiedPayment.amount)} · ${fmtD(c.summary.lastVerifiedPayment.at)}` : T("common.none")}</Kv>
-        <Kv label={T("agent.facts.activePromise")}>
-          {openPromise ? (
-            <>
-              {fmtAzn(openPromise.amount)} · {fmtD(openPromise.deadlineDate)} <Badge tone={openPromise.status === "ACTIVE" ? "info" : "warning"}>{promiseStatus(openPromise.status)}</Badge>
-            </>
-          ) : (
-            T("agent.facts.noPromise")
-          )}
-        </Kv>
+      <div className="border-b border-line px-6 py-5" data-testid="customer-summary">
+        <p className="text-[13px] text-muted">{T("agent.facts.overdue")}</p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <p className="tabular-nums" data-testid="summary-overdue">
+            <span className={`text-[30px] leading-9 font-medium ${Number(c.summary.overdueDueNow) > 0 ? "text-ink" : "text-success"}`}>{fmtAzn(c.summary.overdueDueNow, false, locale)}</span> <span className="text-muted">AZN</span>
+          </p>
+          {c.summary.maxDpd > 0 && <span className="status-chip chip-warning">{A("cd.days", { n: c.summary.maxDpd })}</span>}
+        </div>
+        <div className="mt-3 text-sm">
+          <Line label={T("agent.facts.principal")}>{fmtAzn(c.summary.principalOutstanding, true, locale)}</Line>
+          <Line label={A("cp.lastPayment")}>
+            <span title={c.summary.lastVerifiedPayment ? fmtAzn(c.summary.lastVerifiedPayment.amount, true, locale) : undefined}>{c.summary.lastVerifiedPayment ? fmtD(c.summary.lastVerifiedPayment.at) : T("common.none")}</span>
+          </Line>
+          <Line label={A("cd.activePromise")}>
+            {openPromise ? `${fmtAzn(openPromise.amount, true, locale)} · ${fmtD(openPromise.deadlineDate)} · ${promiseStatus(openPromise.status)}` : A("cd.none")}
+          </Line>
+        </div>
+        <p className="mt-2 text-xs text-muted">{T("topbar.sourceRefreshed")} {c.summary.balancesAsOf ? TIME.format(new Date(c.summary.balancesAsOf)) : "—"}</p>
         {restrictions.length > 0 && (
-          <div className="callout callout-warning col-span-2 text-sm" data-testid="customer-restrictions">
-            <p className="font-semibold">{A("cust.restrictions")}</p>
+          <div className="callout callout-warning mt-3 text-sm" data-testid="customer-restrictions">
+            <p className="font-medium">{A("cust.restrictions")}</p>
             {restrictions.map((r) => <p key={r}>{r}</p>)}
           </div>
         )}
       </div>
 
-      <div className="px-4 pt-2">
+      <div className="border-b border-line px-6 py-3">
         <Tabs
           idPrefix="ctx"
           active={tab}
           onChange={setTab}
           tabs={[
             { key: "facts", label: T("agent.tabs.facts") },
-            { key: "accounts", label: T("agent.tabs.accounts"), count: c.loans.length },
+            { key: "accounts", label: A("cd.loans") },
             { key: "timeline", label: T("agent.tabs.timeline") },
-            { key: "related", label: T("agent.tabs.related"), count: c.relatedParties.length },
-            { key: "pay", label: T("agent.tabs.payInstr") },
+            { key: "related", label: A("cp.contacts") },
           ]}
         />
       </div>
 
-      <div className="p-4 pt-3 text-sm">
+      <div className="px-6 py-4 text-sm">
         {tab === "facts" && (
-          <div id="ctx-panel-facts" role="tabpanel" className="space-y-2">
-            <Kv row label={T("agent.facts.contact")}>{primary ? `${primary.value} · ${contactState(primary.verification)}` : "—"}</Kv>
-            <Kv row label={T("agent.facts.language")}>{c.customer.language.toUpperCase()}</Kv>
-            <Kv row label={T("agent.facts.previousOutcome")}>{lastOutcome ? `${T(`agent.outcomes.${lastOutcome.businessOutcome}`)} · ${fmtD(lastOutcome.startedAt)}` : T("common.none")}</Kv>
-            <Kv row label={T("agent.facts.nextRoutineCall")}>{cooldownActive ? fmtDT(c.restrictions.cooldownUntil) : "—"}</Kv>
-            {c.decision && (
-              <>
-                <Kv row label={A("cust.priority")}>{c.decision.actionBucket ?? "—"}</Kv>
-                {c.decision.era && <Kv row label={A("cust.era")}>{fmtAzn(c.decision.era)}</Kv>}
-              </>
+          <div id="ctx-panel-facts" role="tabpanel">
+            <Line label={A("cp.phone")}>
+              <span title={primary ? contactState(primary.verification) : undefined}>{primary ? primary.value : "—"}</span>
+              {primary?.verification === "INVALID" && <span className="ml-2 text-warning">{contactState(primary.verification)}</span>}
+            </Line>
+            <Line label={T("agent.facts.previousOutcome")}>{lastOutcome ? T(`agent.outcomes.${lastOutcome.businessOutcome}`) : T("common.none")}</Line>
+            <Line label={A("cp.nextPayment")}>{c.summary.nextDue ? fmtD(c.summary.nextDue.date) : "—"}</Line>
+            {cooldownActive && <Line label={T("agent.facts.nextRoutineCall")}>{fmtDT(c.restrictions.cooldownUntil)}</Line>}
+            <Line label={T("agent.facts.language")}>{c.customer.language.toUpperCase()}</Line>
+            {c.decision && <Line label={A("cust.priority")}>{c.decision.actionBucket ?? "—"}</Line>}
+
+            <div className="mt-5 flex items-center justify-between gap-3" data-testid="pay-instructions">
+              <Button variant="secondary" className="min-w-44" disabled={!canSend || sending} onClick={sendInstructions} title={!inCall ? T("agent.payInstr.noCall") : !verified ? T("agent.payInstr.requiresRpc") : T("agent.payInstr.preview")} data-testid="send-pay-instructions">
+                {sending ? A("ctl.working") : T("agent.tabs.payInstr")}
+              </Button>
+              <span className="text-sm text-muted">SMS</span>
+            </div>
+            {inCall && !verified && <p className="mt-1.5 text-xs text-warning">{T("agent.payInstr.requiresRpc")}</p>}
+            {c.messages.length > 0 && (
+              <ul className="mt-3 divide-y divide-line text-[13px]">
+                {c.messages.slice(0, 3).map((m) => (
+                  <li key={m.id} className="flex justify-between gap-2 py-1.5">
+                    <span className="text-muted">{fmtDT(m.requestedAt)} · {kindLabel(m.kind)}</span>
+                    <span>{A(`msg.${m.status}`)}</span>
+                  </li>
+                ))}
+              </ul>
             )}
             {showDiagnostics && c.decision && (
-              <details className="rounded-md border border-line px-3 py-2 text-xs" data-testid="customer-diagnostics">
+              <details className="mt-3 rounded-md border border-line px-3 py-2 text-xs" data-testid="customer-diagnostics">
                 <summary className="cursor-pointer font-medium">{A("cust.diagnostics")}</summary>
                 <p className="mt-1">{c.decision.segmentLabel} · {c.decision.effectiveActionLabel} · {c.decision.probabilitySourceLabel}{c.decision.riskClass ? ` · ${c.decision.riskClass}` : ""} · rank {c.decision.rank ?? "—"}</p>
                 <p className="text-muted">{c.decision.modelVersion ?? "—"} · {c.decision.strategyVersion ?? "—"} · {c.decision.policyVersion ?? "—"}</p>
                 <p className="text-muted">CIF {c.customer.cif}{interaction ? ` · ${interaction.correlationId}` : ""}</p>
               </details>
             )}
+            <Link href={`/customers/${c.customer.id}`} className="mt-3 inline-block text-[13px]">{A("cust.fullProfile")} →</Link>
           </div>
         )}
 
@@ -157,14 +181,14 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
                       <Badge tone={l.dpd > 0 ? "danger" : "success"}>{l.dpd > 0 ? A("call.dpd", { n: l.dpd }) : l.status === "ACTIVE" ? A("cust.current") : l.status}</Badge>
                     </span>
                   </div>
-                  <p className="text-[13px] text-muted">{A("cust.terms", { rate: (Number(l.nominalAnnualRate) * 100).toFixed(2), months: l.tenorMonths, installment: fmtAzn(l.regularInstallment) })}</p>
+                  <p className="text-[13px] text-muted">{A("cust.terms", { rate: (Number(l.nominalAnnualRate) * 100).toFixed(2), months: l.tenorMonths, installment: fmtAzn(l.regularInstallment, true, locale) })}</p>
                   {Number(l.totalOverdue) > 0 && (
                     <p>
-                      <span className="font-semibold text-danger">{T("agent.facts.overdue")} {fmtAzn(l.totalOverdue)}</span> <span className="text-[13px] text-muted">({A("cust.overdueSplit", { p: fmtAzn(l.overduePrincipal), i: fmtAzn(l.overdueInterest) })})</span>
+                      <span className="font-semibold text-danger">{T("agent.facts.overdue")} {fmtAzn(l.totalOverdue, true, locale)}</span> <span className="text-[13px] text-muted">({A("cust.overdueSplit", { p: fmtAzn(l.overduePrincipal), i: fmtAzn(l.overdueInterest, true, locale) })})</span>
                     </p>
                   )}
                   <p className="text-[13px]">
-                    {A("cust.outstanding")} {fmtAzn(l.principalOutstanding)}
+                    {A("cust.outstanding")} {fmtAzn(l.principalOutstanding, true, locale)}
                     {l.nextDueDate ? ` · ${A("cust.nextDueOn", { date: fmtD(l.nextDueDate) })}` : ""}
                   </p>
                 </div>
@@ -178,14 +202,14 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
                 {c.restrictions.paidClaims.map((p) => (
                   <li key={p.id} className="flex justify-between gap-2 py-1.5">
                     <span>{A("cust.claim")}</span>
-                    <span>{p.claimedAmount ? fmtAzn(p.claimedAmount) : "—"} <Badge tone="warning">{T("agent.paymentStates.CLAIMED")}</Badge></span>
+                    <span>{p.claimedAmount ? fmtAzn(p.claimedAmount, true, locale) : "—"} <Badge tone="warning">{T("agent.paymentStates.CLAIMED")}</Badge></span>
                   </li>
                 ))}
                 {c.payments.slice(0, 10).map((p) => (
                   <li key={p.id} className="flex justify-between gap-2 py-1.5">
                     <span>{fmtD(p.valueDate)}{showDiagnostics ? ` · ${p.sourceTransactionId}` : ""}</span>
                     <span>
-                      {fmtAzn(p.amount)} <Badge tone={p.status === "POSTED" ? "success" : p.status === "REVERSED" ? "danger" : "warning"}>{paymentStateLabel(locale, p.status, p.reconciliation)}</Badge>
+                      {fmtAzn(p.amount, true, locale)} <Badge tone={p.status === "POSTED" ? "success" : p.status === "REVERSED" ? "danger" : "warning"}>{paymentStateLabel(locale, p.status, p.reconciliation)}</Badge>
                     </span>
                   </li>
                 ))}
@@ -231,31 +255,6 @@ export function CustomerPanel({ ctx, locale, verified, showDiagnostics, onToast,
           </div>
         )}
 
-        {tab === "pay" && (
-          <div id="ctx-panel-pay" role="tabpanel" className="space-y-3">
-            <p className="text-[13px] text-muted">{T("agent.payInstr.preview")}</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="primary" disabled={!canSend || sending} onClick={sendInstructions} data-testid="send-pay-instructions">
-                {sending ? A("ctl.working") : T("agent.payInstr.send")}
-              </Button>
-              {!inCall ? <span className="text-[13px] text-muted">{T("agent.payInstr.noCall")}</span> : !verified && <span className="text-[13px] text-warning">{T("agent.payInstr.requiresRpc")}</span>}
-            </div>
-            {c.messages.length > 0 && (
-              <>
-                <h4 className="text-[13px] font-semibold text-muted">{T("agent.payInstr.recent")}</h4>
-                <ul className="divide-y divide-line">
-                  {c.messages.map((m) => (
-                    <li key={m.id} className="flex flex-wrap justify-between gap-1 py-1.5">
-                      <span>{fmtDT(m.requestedAt)} · {kindLabel(m.kind)}</span>
-                      <Badge tone={m.status === "DELIVERED" ? "success" : m.status === "FAILED" || m.status === "BLOCKED" ? "danger" : "info"}>{A(`msg.${m.status}`)}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <Link href={`/customers/${c.customer.id}`} className="text-[13px]">{A("cust.fullProfile")} →</Link>
-          </div>
-        )}
       </div>
     </div>
   );

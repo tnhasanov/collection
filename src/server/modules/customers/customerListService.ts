@@ -14,6 +14,8 @@ import { OPEN_WORK_STATUSES, orderWork, workStatusCode } from "@/server/modules/
  */
 export type CustomerSort = "overdue" | "dpd" | "loans" | "name";
 export type CustomerFilter = "overdue" | "active";
+/** Worklist tabs: everyone, customers with an open callback, customers with an open promise. */
+export type CustomerTab = "all" | "callbacks" | "promises";
 
 export interface NextWork {
   id: string;
@@ -122,11 +124,17 @@ export async function attachWork(db: Db, rows: Omit<CustomerRow, "next" | "openW
  * aggregated in the database, then sorted and paged by customer. Ties are broken by customer id so pages never
  * overlap or skip a customer.
  */
-export async function listCustomers(db: Db, opts: { scope: CustomerScope; q?: string; filter?: CustomerFilter; sort?: CustomerSort; dir?: "asc" | "desc"; page: number; pageSize: number; now: Date }): Promise<CustomerPage> {
+export async function listCustomers(db: Db, opts: { scope: CustomerScope; q?: string; filter?: CustomerFilter; tab?: CustomerTab; sort?: CustomerSort; dir?: "asc" | "desc"; page: number; pageSize: number; now: Date }): Promise<CustomerPage> {
   const sort = SORT_SQL[opts.sort ?? "overdue"] ? opts.sort ?? "overdue" : "overdue";
   const dir = opts.dir === "asc" ? "ASC" : opts.dir === "desc" ? "DESC" : sort === "name" ? "ASC" : "DESC";
   const having = opts.filter === "active" ? Prisma.sql`COUNT(l."id") > 0` : Prisma.sql`COUNT(l."id") > 0 AND COALESCE(SUM(l."totalOverdue"), 0) > 0`;
-  const where = Prisma.sql`${scopeSql(opts.scope)} AND ${await searchSql(db, opts.q)}`;
+  const tab =
+    opts.tab === "callbacks"
+      ? Prisma.sql`EXISTS (SELECT 1 FROM "WorkItem" w WHERE w."customerId" = c."id" AND w."type" = 'CALLBACK' AND w."status"::text = ANY(${[...OPEN_WORK_STATUSES]}::text[]))`
+      : opts.tab === "promises"
+        ? Prisma.sql`EXISTS (SELECT 1 FROM "Promise" p WHERE p."customerId" = c."id" AND p."status"::text = ANY(${[...OPEN_PROMISE]}::text[]))`
+        : Prisma.sql`TRUE`;
+  const where = Prisma.sql`${scopeSql(opts.scope)} AND ${await searchSql(db, opts.q)} AND ${tab}`;
   const agg = Prisma.sql`
     SELECT c."id", c."displayName", c."cif", c."branch",
            COUNT(l."id")::int AS "loans",
@@ -161,7 +169,7 @@ export async function customerOverview(db: Db, customerId: string, now: Date) {
       specialHandling: true,
       loans: { orderBy: [{ status: "asc" }, { dpd: "desc" }, { coreLoanId: "asc" }], select: { id: true, coreLoanId: true, status: true, product: true, dpd: true, totalOverdue: true, overduePrincipal: true, overdueInterest: true, principalOutstanding: true, nextDueDate: true, nextDueAmount: true, balancesAsOf: true } },
       promises: { where: { status: { in: [...OPEN_PROMISE, "BROKEN"] } }, orderBy: { deadline: "asc" }, select: { id: true, amount: true, paidAmount: true, remainingAmount: true, deadlineDate: true, status: true, coveredLoanIds: true } },
-      interactions: { orderBy: { startedAt: "desc" }, take: 1, select: { id: true, startedAt: true, channel: true, technicalResult: true, identityStatus: true, businessOutcome: true, status: true, agent: { select: { displayName: true } } } },
+      interactions: { orderBy: { startedAt: "desc" }, take: 1, select: { id: true, startedAt: true, channel: true, technicalResult: true, identityStatus: true, businessOutcome: true, status: true, factualSummary: true, agent: { select: { displayName: true } } } },
       workItems: { where: { status: { in: [...OPEN_WORK_STATUSES] } }, select: { id: true, type: true, status: true, rank: true, priority: true, dueAt: true, createdAt: true, nextEligibleAt: true, deferredReasons: true, reason: true, owner: { select: { displayName: true } }, claimedBy: { select: { displayName: true } } } },
     },
   });
@@ -182,7 +190,7 @@ export async function customerOverview(db: Db, customerId: string, now: Date) {
     },
     loans: customer.loans.map((l) => ({ id: l.id, coreLoanId: l.coreLoanId, status: l.status, product: l.product, dpd: l.dpd, totalOverdue: l.totalOverdue.toFixed(2), overduePrincipal: l.overduePrincipal.toFixed(2), overdueInterest: l.overdueInterest.toFixed(2), principalOutstanding: l.principalOutstanding.toFixed(2), nextDueDate: fromDbDate(l.nextDueDate), nextDueAmount: l.nextDueAmount?.toFixed(2) ?? null })),
     promises: customer.promises.map((p) => ({ id: p.id, amount: p.amount.toFixed(2), paid: p.paidAmount.toFixed(2), remaining: p.remainingAmount.toFixed(2), deadlineDate: fromDbDate(p.deadlineDate), status: p.status, loans: p.coveredLoanIds.map((id) => ({ id, coreLoanId: coreId.get(id) ?? id })) })),
-    lastContact: last ? { at: last.startedAt, channel: last.channel, technicalResult: last.technicalResult, identityStatus: last.identityStatus, businessOutcome: last.businessOutcome, status: last.status, agentName: last.agent?.displayName ?? null } : null,
+    lastContact: last ? { at: last.startedAt, channel: last.channel, technicalResult: last.technicalResult, identityStatus: last.identityStatus, businessOutcome: last.businessOutcome, status: last.status, agentName: last.agent?.displayName ?? null, summary: last.factualSummary } : null,
     work: work.map((w, i) => ({ id: w.id, type: w.type, status: w.status, code: workStatusCode(w, now), next: i === 0, dueAt: w.dueAt, nextEligibleAt: w.nextEligibleAt, reasons: w.deferredReasons, reason: w.reason, owner: w.owner?.displayName ?? w.claimedBy?.displayName ?? null })),
     decision: decision ? { bucket: decision.actionBucket, era: decision.era?.toFixed(2) ?? null, rank: decision.rank } : null,
   };

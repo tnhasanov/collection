@@ -56,7 +56,13 @@ async function notCovered(page, testId) {
 }
 
 async function finishLeftovers(page) {
-  // An earlier run may have left after-call work open; complete it so the shift starts from Ready.
+  // An earlier interrupted run may have left a live call or after-call work open; end and complete it so the shift
+  // starts from Ready. The saved draft is reused when it is already complete.
+  const end = page.getByTestId("ctl-end");
+  if ((await end.isVisible().catch(() => false)) && (await end.isEnabled().catch(() => false))) {
+    await end.click();
+    await page.getByTestId("acw-strip").waitFor({ timeout: 90000 });
+  }
   if (await page.getByTestId("acw-strip").isVisible().catch(() => false)) {
     if (await page.getByTestId("identity-RPC_VERIFIED").isVisible().catch(() => false)) await page.getByTestId("identity-RPC_VERIFIED").click();
     if (await page.getByTestId("reason-NOT_STATED").isVisible().catch(() => false)) await page.getByTestId("reason-NOT_STATED").click();
@@ -68,7 +74,7 @@ async function finishLeftovers(page) {
 }
 
 const browser = await launch();
-const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+const context = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: "az-AZ", timezoneId: "Asia/Baku" });
 const page = await context.newPage();
 await login(page, process.env.AGENT ?? "agent.a");
 
@@ -104,10 +110,8 @@ check("save is disabled while the call is live", await page.getByTestId("save-ne
 await page.getByTestId("identity-RPC_VERIFIED").click();
 await page.getByTestId("reason-SALARY_TIMING").click();
 await page.getByTestId("outcome-PTP").click();
-await page.getByTestId("ptp-amount-other").click();
 const maxAmount = await page.getByTestId("promise-fields").innerText();
 await page.getByTestId("ptp-amount-input").fill("137.50");
-await page.getByTestId("ptp-date-other").click();
 const dateInput = page.getByTestId("ptp-date-input");
 const min = await dateInput.getAttribute("min");
 const max = await dateInput.getAttribute("max");
@@ -115,12 +119,12 @@ const date = isoAdd(min, 2) <= (max ?? "9999") ? isoAdd(min, 2) : min;
 await dateInput.fill(date);
 await page.waitForTimeout(400);
 const scriptText = await page.getByTestId("script-confirm").innerText().catch(() => "");
-check("confirmation script shows the custom amount and date", scriptText.includes("137.50") && scriptText.includes(azDate(date)), scriptText);
+check("confirmation script shows the custom amount and date", scriptText.includes("137,50") && scriptText.includes(azDate(date)), scriptText);
 check("consent is not set by entering terms", !(await page.getByTestId("ptp-confirm").isChecked()));
 await page.getByTestId("ptp-confirm").check();
-await page.waitForFunction(() => document.querySelector("[data-testid='outcome-line']")?.textContent?.includes("137,50") || document.querySelector("[data-testid='outcome-line']")?.textContent?.includes("137.50"), null, { timeout: 15000 });
+await page.waitForFunction(() => document.querySelector("[data-testid='outcome-line']")?.textContent?.includes("137,50"), null, { timeout: 15000 });
 const line = await page.getByTestId("outcome-line").innerText();
-check("bottom summary shows the same amount and date", (line.includes("137,50") || line.includes("137.50")) && line.includes(azDate(date)), line);
+check("bottom summary shows the same amount and date", line.includes("137,50") && line.includes(azDate(date)), line);
 const cover = await notCovered(page, "ptp-amount-input");
 check("sticky bar does not cover the focused amount input", cover.ok, JSON.stringify(cover));
 await shot(page, "promise-form-1366");
@@ -133,7 +137,7 @@ await page.waitForTimeout(1500); // draft autosave (900 ms debounce)
 await page.reload();
 await page.getByTestId("stage-outcome").waitFor({ timeout: 60000 });
 await page.getByTestId("ptp-amount-input").waitFor({ timeout: 30000 });
-check("custom amount restored after reload", (await page.getByTestId("ptp-amount-input").inputValue()) === "137.50");
+check("custom amount restored after reload", (await page.getByTestId("ptp-amount-input").inputValue()) === "137,50");
 check("custom date restored after reload", (await page.getByTestId("ptp-date-input").inputValue()) === date);
 check("explicit agreement restored after reload", await page.getByTestId("ptp-confirm").isChecked());
 check("identity stage collapsed into a summary", (await page.getByTestId("stage-identity").innerText()).length < 120);
@@ -152,7 +156,7 @@ const rank = { OVERDUE: 0, TODAY: 1, LATER: 2, NONE: 3 };
 check("overdue and due-today items first", order.every((d, i) => i === 0 || rank[order[i - 1]] <= rank[d]), order.slice(0, 12).join(","));
 await page.getByTestId("active-call-indicator").getByRole("link").click();
 await page.getByTestId("ptp-amount-input").waitFor({ timeout: 30000 });
-check("returning to the call keeps the draft", (await page.getByTestId("ptp-amount-input").inputValue()) === "137.50" && (await page.getByTestId("ptp-confirm").isChecked()));
+check("returning to the call keeps the draft", (await page.getByTestId("ptp-amount-input").inputValue()) === "137,50" && (await page.getByTestId("ptp-confirm").isChecked()));
 
 // ---- the dashboard shows the way back but does not pull the agent into a call they already opened
 await page.goto(`${BASE}/agent`);

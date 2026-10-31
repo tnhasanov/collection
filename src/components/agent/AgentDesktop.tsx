@@ -148,7 +148,7 @@ export function AgentDesktop({ initial, user, locale, showDiagnostics }: { initi
 
   const inConversation = (mode === "dialing" || mode === "live" || mode === "acw") && !!ctx.customer;
   return (
-    <div className="space-y-3" data-testid="call-workspace" data-mode={mode}>
+    <div className="space-y-5" data-testid="call-workspace" data-mode={mode}>
       <Toast message={toast?.message ?? null} tone={toast?.tone} />
       <CallHeader ctx={ctx} locale={locale} mode={mode} serverNow={serverNow} busy={busy} onState={changeState} onControl={control} controlBusy={controlBusy} showDiagnostics={showDiagnostics} callElapsed={callElapsed} acwElapsed={acwElapsed} />
       {!connected && <p className="callout callout-warning text-sm">{A("conn.reconnecting")}</p>}
@@ -158,7 +158,7 @@ export function AgentDesktop({ initial, user, locale, showDiagnostics }: { initi
 
       {inConversation && (
         <>
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-3">
               {overdueCleared && <p className="callout callout-success text-sm font-medium" data-testid="overdue-cleared-banner">{A("cleared.banner")}</p>}
               {mode === "acw" && interaction && (

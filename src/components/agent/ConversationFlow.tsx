@@ -127,20 +127,35 @@ function Script({ text, vars, testId }: { text: string; vars: Record<string, str
   );
 }
 
-function Stage({ n, title, state, summary, onOpen, children, testId, locale, editable = true }: { n: number; title: string; state: "current" | "done" | "todo"; summary?: string | null; onOpen: () => void; children?: React.ReactNode; testId: string; locale: Locale; editable?: boolean }) {
+function Stage({ n, title, state, summary, onOpen, children, testId, locale, editable = true, badge }: { n: number; title: string; state: "current" | "done" | "todo"; summary?: string | null; onOpen: () => void; children?: React.ReactNode; testId: string; locale: Locale; editable?: boolean; badge?: React.ReactNode }) {
   const open = !!children;
   return (
     <section className="stage" data-state={open ? "current" : state} data-testid={testId} aria-label={title}>
-      <div className="stage-head">
-        <span className="stage-no" aria-hidden="true">{state === "done" && !open ? "✓" : n}</span>
-        <span className="text-base font-semibold text-ink">{title}</span>
-        {!open && summary && <span className="min-w-0 flex-1 truncate text-sm text-muted">· {summary}</span>}
-        {!open && state !== "todo" && editable && (
-          <button type="button" className="btn btn-ghost btn-sm ml-auto" onClick={onOpen} data-testid={`${testId}-edit`}>
-            {at(locale, "conv.change")}
-          </button>
-        )}
-      </div>
+      {open ? (
+        <div className="stage-head">
+          <h2 className="text-lg font-medium text-ink">{title}</h2>
+          {badge}
+        </div>
+      ) : (
+        <div className="stage-head">
+          <span className="stage-no" aria-hidden="true">
+            {state === "done" ? (
+              <svg width="12" height="12" viewBox="0 0 12 12"><path d="m2.5 6.2 2.2 2.2 4.8-4.8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            ) : (
+              n
+            )}
+          </span>
+          <span className={`text-sm ${state === "todo" ? "text-muted" : "text-ink"}`}>{title}</span>
+          <span className="min-w-0 truncate text-sm text-muted" title={summary ?? undefined}>{summary}</span>
+          {state !== "todo" && editable ? (
+            <button type="button" className="text-sm text-brand hover:underline" onClick={onOpen} data-testid={`${testId}-edit`}>
+              {at(locale, "conv.change")}
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
+      )}
       {open && <div className="stage-body">{children}</div>}
     </section>
   );
@@ -161,12 +176,12 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
   const saveState = useDraftSync(interaction?.id ?? "none", draft, locked || !interaction, onPreview);
   const stash = useRef<Stash>({ outcomes: {} });
   const [openStage, setOpenStage] = useState<StageKey | null>(null);
-  const [customAmount, setCustomAmount] = useState(false);
-  const [customDate, setCustomDate] = useState(false);
   const [customCallback, setCustomCallback] = useState(false);
   const [cbPicked, setCbPicked] = useState<{ key: string; dueAt: string } | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [consentReset, setConsentReset] = useState(false);
+  // The amount is shown in the interface format (137,50) and edited as typed; the draft keeps the plain value.
+  const [amountFocused, setAmountFocused] = useState(false);
   const [outcomeListOpen, setOutcomeListOpen] = useState(false);
   const [statementOpen, setStatementOpen] = useState(false);
 
@@ -186,12 +201,12 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
   const thirdParty = draft.identityStatus === "THIRD_PARTY";
   const promise = isPromise(draft.businessOutcome);
   const fmtD = (iso: string) => fmtDate(iso, locale);
-  const values = scriptValues(draft, fmtD);
+  const values = scriptValues(draft, fmtD, (n) => fmtAzn(n, false, locale));
   const overdueLoan = [...overdueLoans].sort((a, b) => ((a.oldestUnpaidDueDate ?? "") < (b.oldestUnpaidDueDate ?? "") ? -1 : 1))[0];
   const vars: Record<string, string | null> = {
     agentName,
     customerName: customer?.customer.displayName ?? "",
-    overdueAmount: fmtAzn(customer?.summary.overdueDueNow ?? "0", false),
+    overdueAmount: fmtAzn(customer?.summary.overdueDueNow ?? "0", false, locale),
     oldestDueDate: overdueLoan?.oldestUnpaidDueDate ? fmtD(overdueLoan.oldestUnpaidDueDate) : "—",
     dpd: String(customer?.summary.maxDpd ?? 0),
     promiseAmount: values.promiseAmount,
@@ -203,8 +218,8 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
     if (!locked) onChange(next);
   };
   const go = (s: StageKey | null) => setOpenStage(s);
-  const amountSel = amountChoice(draft, presets, customAmount);
-  const dateSel = dateChoice(draft, shortcuts, customDate);
+  const amountSel = amountChoice(draft, presets, false);
+  const dateSel = dateChoice(draft, shortcuts, false);
   const cbShortcuts = callbackShortcuts(serverNow().getTime(), (d) => bakuTodayIso(d.toISOString()), fromBakuLocalInput);
   const cbSel = cbPicked && cbPicked.dueAt === draft.callback?.dueAt && !customCallback ? cbPicked.key : callbackChoice(draft, cbShortcuts, customCallback);
   const setCallback = (patch: Partial<NonNullable<OutcomeDraft["callback"]>>) => set({ ...draft, callback: { dueAt: draft.callback?.dueAt ?? "", customerRequested: draft.callback?.customerRequested ?? true, ownerMode: draft.callback?.ownerMode ?? "ME", ...patch } });
@@ -230,10 +245,21 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
 
   if (!interaction || !customer) return null;
   const outcomeOptions = rpc ? allowedOutcomes("RPC_VERIFIED", overdueCleared) : thirdParty ? allowedOutcomes("THIRD_PARTY") : [];
+  const chosenBadge =
+    outcomeOptions.length > 0 && draft.businessOutcome && !outcomeListOpen ? (
+      <span className="flex items-center gap-3">
+        <span className="status-chip chip-brand !h-6 px-2.5 text-[13px]" data-testid="outcome-chosen">{t(locale, `agent.outcomes.${draft.businessOutcome}`)}</span>
+        {!locked && outcomeOptions.length > 1 && (
+          <button type="button" className="text-sm text-brand hover:underline" onClick={() => setOutcomeListOpen(true)} data-testid="outcome-change">
+            {A("conv.change")}
+          </button>
+        )}
+      </span>
+    ) : null;
 
   return (
-    <div className="space-y-0" data-testid="conversation">
-      {!active && <p className="callout callout-info mb-3 text-sm">{A("conv.waitConnect")}</p>}
+    <div className="conv-card" data-testid="conversation">
+      {!active && <p className="callout callout-info m-4 text-sm">{A("conv.waitConnect")}</p>}
 
       <Stage n={1} title={A("conv.identity")} state={status.identityDone ? "done" : "current"} summary={identitySummary} onOpen={() => go("identity")} testId="stage-identity" locale={locale}>
         {current === "identity" ? (
@@ -290,25 +316,14 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
         ) : null}
       </Stage>
 
-      <Stage n={3} title={A("conv.outcome")} state={status.outcomeDone ? "done" : status.identityDone && status.discussionDone ? "current" : "todo"} summary={outcomeSummary} onOpen={() => go("outcome")} testId="stage-outcome" locale={locale}>
+      <Stage n={3} title={A("conv.outcome")} state={status.outcomeDone ? "done" : status.identityDone && status.discussionDone ? "current" : "todo"} summary={outcomeSummary} onOpen={() => go("outcome")} testId="stage-outcome" locale={locale} badge={chosenBadge}>
         {current === "outcome" && status.identityDone ? (
           <>
             {thirdParty && script?.body.thirdParty && <Script text={script.body.thirdParty} vars={vars} testId="script-third-party" />}
             {rpc && stepText("agree") && !promise && <Script text={stepText("agree")!} vars={vars} testId="script-agree" />}
             {rpc && overdueCleared && <p className="callout callout-success text-sm" data-testid="overdue-cleared-hint">{T("agent.form.closedNote")}</p>}
             {rpc && overdueCleared && promise && <p className="callout callout-warning text-sm" data-testid="ptp-obsolete">{A("conv.ptpObsolete")}</p>}
-            {outcomeOptions.length > 0 && draft.businessOutcome && !outcomeListOpen ? (
-              <div className="flex flex-wrap items-center gap-3" data-testid="outcome-chosen">
-                <span className="choice max-w-sm" aria-pressed="true">
-                  <span className="pr-4">{t(locale, `agent.outcomes.${draft.businessOutcome}`)}</span>
-                </span>
-                {!locked && outcomeOptions.length > 1 && (
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOutcomeListOpen(true)} data-testid="outcome-change">
-                    {A("conv.change")}
-                  </button>
-                )}
-              </div>
-            ) : outcomeOptions.length > 0 ? (
+            {outcomeOptions.length > 0 && draft.businessOutcome && !outcomeListOpen ? null : outcomeOptions.length > 0 ? (
               <div className="choice-grid" role="group" aria-label={A("conv.outcome")}>
                 {outcomeOptions.map((k) => (
                   <Choice
@@ -327,44 +342,38 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
             )}
 
             {promise && (
-              <div className="space-y-4 rounded-lg border border-line p-4" data-testid="promise-fields">
-                <div>
-                  <span className="field-label">{T("agent.form.amount")}</span>
-                  <div className="chip-row">
-                    {presets.map((p) => (
-                      <button key={p.key} type="button" className="chip tabular-nums" data-testid={p.key === "overdue" ? "ptp-amount-overdue" : "ptp-amount-installment"} aria-pressed={amountSel === p.key} disabled={locked} onClick={() => { setCustomAmount(false); setPromise({ amount: p.amount }); }}>
-                        {p.key === "overdue" ? T("agent.form.overdueNow") : T("agent.form.nextInstallment")} · {fmtAzn(p.amount, false)}
-                      </button>
-                    ))}
-                    <button type="button" className="chip" aria-pressed={amountSel === "custom"} disabled={locked} onClick={() => setCustomAmount(true)} data-testid="ptp-amount-other">
-                      {T("agent.form.otherAmount")}
-                    </button>
-                  </div>
-                  {amountSel === "custom" && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <Input id="ptp-amount" aria-label={T("agent.form.amount")} className="input max-w-40 tabular-nums" inputMode="decimal" value={ptp?.amount ?? ""} disabled={locked} onChange={(e) => setPromise({ amount: e.target.value.replace(",", ".") })} data-testid="ptp-amount-input" />
-                      <span className="text-sm text-muted">AZN · {A("conv.maxAmount", { max: maxOwed.toFixed(2) })}</span>
+              <div className="space-y-5" data-testid="promise-fields">
+                <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+                  <div>
+                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                      <label htmlFor="ptp-amount" className="text-sm text-ink">{A("conv.amountLabel")}</label>
+                      <span className="flex flex-wrap gap-1">
+                        {presets.map((p) => (
+                          <button key={p.key} type="button" className="mini-chip" title={fmtAzn(p.amount, true, locale)} data-testid={p.key === "overdue" ? "ptp-amount-overdue" : "ptp-amount-installment"} aria-pressed={amountSel === p.key} disabled={locked} onClick={() => setPromise({ amount: p.amount })}>
+                            {p.key === "overdue" ? T("agent.form.overdueNow") : T("agent.form.nextInstallment")}
+                          </button>
+                        ))}
+                      </span>
                     </div>
-                  )}
-                </div>
-                <div>
-                  <span className="field-label">{T("agent.form.deadline")}</span>
-                  <div className="chip-row">
-                    {shortcuts.map((s) => (
-                      <button key={s.key} type="button" className="chip" data-testid={`ptp-date-${s.key === "today" ? "Today" : s.key === "plus3" ? "3days" : "7days"}`} aria-pressed={dateSel === s.key} disabled={locked} onClick={() => { setCustomDate(false); setPromise({ deadlineDate: s.date }); }}>
-                        {T(`agent.form.${s.key === "today" ? "today" : s.key === "plus3" ? "plus3" : "plus7"}`)} · {fmtD(s.date)}
-                      </button>
-                    ))}
-                    <button type="button" className="chip" aria-pressed={dateSel === "custom"} disabled={locked} onClick={() => setCustomDate(true)} data-testid="ptp-date-other">
-                      {T("agent.form.otherDate")}
-                    </button>
+                    <Input id="ptp-amount" className="input tabular-nums" inputMode="decimal" autoComplete="off" value={amountFocused || !ptp?.amount || !Number.isFinite(Number(ptp.amount)) ? ptp?.amount ?? "" : fmtAzn(ptp.amount, false, locale)} disabled={locked} onFocus={() => setAmountFocused(true)} onBlur={() => setAmountFocused(false)} onChange={(e) => setPromise({ amount: e.target.value.replace(/[\s\u00a0]/g, "").replace(",", ".") })} data-testid="ptp-amount-input" />
+                    <p className={`mt-1.5 text-[13px] ${coverage && coverage.covered > 0 ? (coverage.partial ? "text-warning" : "text-success") : "text-muted"}`} data-testid="promise-coverage">
+                      {coverage && coverage.covered > 0 ? (coverage.partial ? A("conv.partial", { amount: fmtAzn(coverage.amount, false, locale), covered: fmtAzn(coverage.covered, false, locale), rest: fmtAzn(coverage.rest, false, locale) }) : A("conv.full")) : A("conv.maxAmount", { max: fmtAzn(maxOwed, false, locale) })}
+                    </p>
                   </div>
-                  {dateSel === "custom" && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Input id="ptp-date" aria-label={T("agent.form.deadline")} type="date" className="input max-w-48" min={today} max={draft.businessOutcome === "PTP_EXCEPTION_PROPOSED" ? undefined : maxDate ?? undefined} value={ptp?.deadlineDate ?? ""} disabled={locked} onChange={(e) => setPromise({ deadlineDate: e.target.value })} data-testid="ptp-date-input" />
-                      {maxDate && <span className="text-sm text-muted">{A("conv.maxDate", { date: fmtD(maxDate) })}</span>}
+                  <div>
+                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                      <label htmlFor="ptp-date" className="text-sm text-ink">{A("conv.dateLabel")}</label>
+                      <span className="flex flex-wrap gap-1">
+                        {shortcuts.map((s) => (
+                          <button key={s.key} type="button" className="mini-chip" title={fmtD(s.date)} data-testid={`ptp-date-${s.key === "today" ? "Today" : s.key === "plus3" ? "3days" : "7days"}`} aria-pressed={dateSel === s.key} disabled={locked} onClick={() => setPromise({ deadlineDate: s.date })}>
+                            {T(`agent.form.${s.key === "today" ? "today" : s.key === "plus3" ? "plus3" : "plus7"}`)}
+                          </button>
+                        ))}
+                      </span>
                     </div>
-                  )}
+                    <Input id="ptp-date" type="date" className="input" min={today} max={draft.businessOutcome === "PTP_EXCEPTION_PROPOSED" ? undefined : maxDate ?? undefined} value={ptp?.deadlineDate ?? ""} disabled={locked} onChange={(e) => setPromise({ deadlineDate: e.target.value })} data-testid="ptp-date-input" />
+                    {maxDate && <p className="mt-1.5 text-[13px] text-muted">{A("conv.maxDate", { date: fmtD(maxDate) })}</p>}
+                  </div>
                 </div>
                 {loans.length > 1 && (
                   <div>
@@ -373,16 +382,11 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
                       {loans.map((l) => (
                         <label key={l.id} className="inline-flex min-h-9 items-center gap-2 text-sm">
                           <input type="checkbox" className="h-4 w-4" checked={(ptp?.coveredLoanIds ?? defaultLoans).includes(l.id)} disabled={locked} onChange={(e) => { const cur = new Set(ptp?.coveredLoanIds ?? defaultLoans); if (e.target.checked) cur.add(l.id); else cur.delete(l.id); setPromise({ coveredLoanIds: [...cur] }); }} />
-                          {l.coreLoanId} · {fmtAzn(l.totalOverdue)}
+                          {l.coreLoanId} · {fmtAzn(l.totalOverdue, true, locale)}
                         </label>
                       ))}
                     </div>
                   </div>
-                )}
-                {coverage && coverage.covered > 0 && (
-                  <p className={`text-sm ${coverage.partial ? "text-warning" : "text-success"}`} data-testid="promise-coverage">
-                    {coverage.partial ? A("conv.partial", { amount: coverage.amount.toFixed(2), covered: coverage.covered.toFixed(2), rest: coverage.rest.toFixed(2) }) : A("conv.full")}
-                  </p>
                 )}
                 {draft.businessOutcome !== "PTP_EXCEPTION_PROPOSED" && beyondHorizon && ctx.promisePolicy && (
                   <div className="callout callout-warning text-sm" data-testid="horizon-warning">
@@ -394,8 +398,8 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
                 )}
                 {draft.businessOutcome === "PTP_EXCEPTION_PROPOSED" && <p className="callout callout-info text-sm" data-testid="exception-note">{T("agent.form.exceptionNote")}</p>}
                 {stepText("confirm") && <Script text={stepText("confirm")!} vars={vars} testId="script-confirm" />}
-                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm font-medium">
-                  <input type="checkbox" className="h-5 w-5" data-testid="ptp-confirm" checked={!!ptp?.customerConfirmed} disabled={locked || !ptp?.amount || !ptp?.deadlineDate} onChange={(e) => setPromise({ customerConfirmed: e.target.checked })} />
+                <label className="flex min-h-9 items-center gap-3 text-[15px] text-ink">
+                  <input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" data-testid="ptp-confirm" checked={!!ptp?.customerConfirmed} disabled={locked || !ptp?.amount || !ptp?.deadlineDate} onChange={(e) => setPromise({ customerConfirmed: e.target.checked })} />
                   {T("agent.form.confirm")}
                 </label>
                 {showConsentReset && <p className="text-sm text-warning" data-testid="consent-reset">{A("conv.consentReset")}</p>}
@@ -501,9 +505,10 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
             {rpc && draft.businessOutcome && stepText("close") && <Script text={stepText("close")!} vars={vars} testId="script-close" />}
 
             {rpc && draft.businessOutcome && (
-              <details className="rounded-lg border border-line px-4 py-2" data-testid="facts">
-                <summary className="cursor-pointer py-1 text-sm font-medium">
-                  {A("conv.facts")}
+              <details className="border-t border-line pt-4" data-testid="facts">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-sm text-muted hover:text-ink">
+                  <span aria-hidden="true" className="text-base leading-none">+</span>
+                  {A("conv.facts2")}
                   {(draft.secondaryFlags ?? []).length > 0 && <span className="ml-2 text-muted">({(draft.secondaryFlags ?? []).length})</span>}
                 </summary>
                 <div className="chip-row mt-2">
@@ -520,14 +525,15 @@ export function ConversationFlow({ ctx, locale, draft, onChange, onPreview, serv
       </Stage>
 
       {status.identityDone && (
-        <div className="mt-3">
+        <div className="border-t border-line px-6 py-4">
           {noteRequired || noteOpen || draft.note ? (
             <Field label={`${T("agent.form.note")}${noteRequired ? ` · ${A("conv.noteRequired")}` : ""}`} htmlFor="note" required={noteRequired}>
               <Textarea id="note" rows={2} disabled={locked} value={draft.note ?? ""} onChange={(e) => set({ ...draft, note: e.target.value })} />
             </Field>
           ) : (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNoteOpen(true)} disabled={locked} data-testid="add-note">
-              + {A("conv.addNote")}
+            <button type="button" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink" onClick={() => setNoteOpen(true)} disabled={locked} data-testid="add-note">
+              <span aria-hidden="true" className="text-base leading-none">+</span>
+              {A("conv.note2")}
             </button>
           )}
           {!locked && rpc && draft.businessOutcome && REASON_REQUIRED.includes(draft.businessOutcome) && !draft.nonPaymentReason && (

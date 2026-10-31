@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Dialog, Field, Input } from "@/components/ui";
-import { fmtAzn, fmtDateTime, fmtDuration } from "@/lib/format";
+import { fmtDateTime, fmtDuration } from "@/lib/format";
 import { t, type Locale } from "@/i18n/dictionaries";
 import { at } from "@/i18n/agentText";
 import { summarizeControlState, type CallControlState } from "@/server/modules/dialer/contract";
@@ -95,60 +95,86 @@ export function CallHeader(p: {
   const endFailed = !!control?.end && control.end.status === "FAILED" && i?.status === "OPEN";
   const endStale = !!control?.end && control.end.stale && i?.status === "OPEN";
 
-  return (
-    <header className="call-header" aria-label={A("nav.activeCall")} data-testid="compact-header">
-      {c && mode !== "home" ? (
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="header-customer">
-          <Link href={`/customers/${c.customer.id}`} className="truncate text-lg font-semibold text-ink hover:underline">
-            {c.customer.displayName}
-          </Link>
-          <span className="text-[13px] text-muted">{c.customer.cif}</span>
-          <span className={`text-sm font-semibold tabular-nums ${Number(c.summary.overdueDueNow) > 0 ? "text-danger" : "text-success"}`} data-testid="header-overdue">
-            {A("call.overdue")} {fmtAzn(c.summary.overdueDueNow)}
-          </span>
-          <span className="text-sm text-muted">{A("call.dpd", { n: c.summary.maxDpd })}</span>
-          <Popover
-            testId="freshness"
-            label={
-              <>
-                <span className={`inline-block h-2 w-2 rounded-full ${dataCurrent ? "bg-success" : "bg-warning"}`} aria-hidden="true" />
-                <span className={dataCurrent ? "text-ink" : "text-warning"}>{dataCurrent ? A("call.fresh") : A("call.stale")}</span>
-              </>
-            }
-          >
-            <p className="mb-2 font-semibold">{A("call.freshTitle")}</p>
-            <div className="space-y-1.5">
-              <div className="kv-row"><span className="kv-label">{A("call.balancesAsOf")}</span><span className="kv-value">{fmtDateTime(c.summary.balancesAsOf, false, locale)}</span></div>
-              <div className="kv-row"><span className="kv-label">{T("common.status")}</span><span className={`kv-value ${contactAllowed ? "text-success" : "text-warning"}`}>{contactAllowed ? A("call.contactAllowed") : A("call.contactBlocked")}</span></div>
-              <div className="kv-row"><span className="kv-label">{T("agent.facts.contact")}</span><span className="kv-value">{r?.maskedNumber ?? "—"}</span></div>
-            </div>
-            <p className="mt-2 text-xs text-muted">{telMode === "MOCK" ? A("tel.mockHint") : telMode === "REAL" ? A("tel.real", { provider: ctx.capabilities.provider ?? "3CX" }) : A("tel.unknown")}</p>
-            {p.showDiagnostics && <p className="mt-2 break-all text-xs text-muted">{i?.correlationId ?? r?.correlationId} · {r?.campaignCode ?? "—"} · {i?.providerInteractionRef ?? "—"} · {control?.providerState ?? "—"}</p>}
-          </Popover>
-          {!contactAllowed && <span className="text-sm text-warning">{A("call.contactBlocked")}</span>}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-baseline gap-x-3">
-          <p className="text-lg font-semibold text-ink">{A("call.noCall")}</p>
-          <p className="text-sm text-muted">{A("call.noCallLead")}</p>
-        </div>
+  const statusTone = live ? "text-success" : mode === "acw" || mode === "wrapup" ? "text-warning" : mode === "recovery" ? "text-danger" : mode === "dialing" ? "text-info" : "text-muted";
+  const activeLoans = c ? c.loans.filter((l) => l.status === "ACTIVE").length : 0;
+  const shift = (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={A("call.shift")} data-testid="shift-controls">
+      {!inCall && mode !== "acw" && mode !== "wrapup" && (
+        <span className="mr-1 inline-flex items-center gap-1.5 text-sm" data-testid="agent-state">
+          <span className={`inline-block h-2 w-2 rounded-full ${STATE_DOT[confirmed] ?? "bg-muted"}`} aria-hidden="true" />
+          <span className="text-ink">{T(`agent.states.${confirmed}`)}</span>
+          <span className="tabular-nums text-muted">{fmtDuration(stateElapsed)}</span>
+        </span>
       )}
+      {s?.pendingBreakAfterWrap && <span className="text-xs text-warning">{T("agent.breakAfterWrap")}</span>}
+      {!inCall && mode !== "acw" && mode !== "wrapup" && (
+        <Button variant="primary" disabled={!canReady} onClick={() => p.onState("READY")} data-testid="go-ready">
+          {T("agent.goReady")}
+        </Button>
+      )}
+      {confirmed === "READY" && <Button variant="secondary" disabled={!s || p.busy} onClick={() => p.onState("NOT_READY")}>{T("agent.notReady")}</Button>}
+      <Button variant="secondary" disabled={!s || p.busy || confirmed === "BREAK"} onClick={() => setBreakOpen(true)} data-testid="shift-break">
+        {T("agent.break")}
+      </Button>
+      <Button variant="ghost" disabled={!s || p.busy} onClick={() => p.onState("OFFLINE", "End of shift")} data-testid="shift-end">
+        {T("agent.endShift")}
+      </Button>
+    </div>
+  );
+  const withCustomer = !!c && mode !== "home";
 
-      <div className="call-header-row mt-2">
-        <div className="flex items-center gap-2">
-          <span className="status-pill" data-testid="call-strip">
-            <span className={`dot ${status.dot}`} aria-hidden="true" />
+  return (
+    <header aria-label={A("nav.activeCall")} data-testid="compact-header">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        {withCustomer ? (
+          <div className="min-w-0" data-testid="header-customer">
+            <h1 className="page-title truncate">
+              <Link href={`/customers/${c!.customer.id}`} className="text-ink hover:text-brand">{c!.customer.displayName}</Link>
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              {[`CIF ${c!.customer.cif.replace(/^CIF-/, "")}`, c!.customer.language.toUpperCase(), activeLoans === 1 ? A("cl.loans1") : A("cl.loansN", { n: activeLoans })].join(" · ")}
+              {!contactAllowed && <span className="ml-2 text-warning">{A("call.contactBlocked")}</span>}
+            </p>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <h1 className="page-title">{A("call.noCall")}</h1>
+            <p className="mt-1 text-sm text-muted">{A("call.noCallLead")}</p>
+          </div>
+        )}
+        <div className="flex items-center gap-4">
+          <span className={`inline-flex items-center gap-2 text-sm ${statusTone}`} data-testid="call-strip">
+            <span className={`h-2 w-2 rounded-full ${status.dot}`} aria-hidden="true" />
             {status.label}
-            {status.time !== null && <span className="tabular-nums font-normal text-muted">{fmtDuration(status.time)}</span>}
           </span>
-          {telMode === "MOCK" && (
-            <span className="rounded-md border border-dashed border-line px-2 py-1 text-xs text-muted" title={A("tel.mockHint")} data-testid="telephony-mode">
-              {A("tel.mock")}
-            </span>
+          {status.time !== null && <span className="text-[22px] leading-7 font-medium text-ink tabular-nums" data-testid="call-timer">{fmtDuration(status.time)}</span>}
+          {withCustomer && (
+            <Popover testId="help" className="btn btn-secondary" label={A("help.title")}>
+              <p className="mb-2 font-medium">{A("help.title")}</p>
+              <div className="space-y-1.5">
+                <div className="kv-row"><span className="kv-label">{A("call.balancesAsOf")}</span><span className={`kv-value ${dataCurrent ? "" : "text-warning"}`}>{fmtDateTime(c!.summary.balancesAsOf, false, locale)}</span></div>
+                <div className="kv-row"><span className="kv-label">{T("common.status")}</span><span className={`kv-value ${contactAllowed ? "text-success" : "text-warning"}`}>{contactAllowed ? A("call.contactAllowed") : A("call.contactBlocked")}</span></div>
+                <div className="kv-row"><span className="kv-label">{T("agent.facts.contact")}</span><span className="kv-value">{r?.maskedNumber ?? "—"}</span></div>
+              </div>
+              {inCall && i && (
+                <Button size="sm" className="mt-3" disabled={!!p.controlBusy || control?.reconciling} onClick={() => p.onControl("RECONCILE")} data-testid="help-reconcile">
+                  {control?.reconciling ? A("rec.checking") : A("rec.check")}
+                </Button>
+              )}
+              <p className="mt-2 text-xs text-muted">{A("rec.lead")}</p>
+              <p className="mt-2 text-xs text-muted">{telMode === "MOCK" ? A("tel.mockHint") : telMode === "REAL" ? A("tel.real", { provider: ctx.capabilities.provider ?? "3CX" }) : A("tel.unknown")}</p>
+              <div className="mt-3 border-t border-line pt-3">
+                <p className="mb-2 text-xs text-muted">{A("call.shift")}</p>
+                {shift}
+              </div>
+              {p.showDiagnostics && <p className="mt-2 break-all text-xs text-muted">{i?.correlationId ?? r?.correlationId} · {r?.campaignCode ?? "—"} · {i?.providerInteractionRef ?? "—"} · {control?.providerState ?? "—"}</p>}
+            </Popover>
           )}
         </div>
+      </div>
 
-        {inCall && (
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        {inCall ? (
           <div className="flex items-center gap-2" role="group" aria-label={A("ctl.end")} data-testid="call-controls">
             {caps.mute && (
               <Button disabled={!live || !!p.controlBusy || pending("MUTE") || pending("UNMUTE")} onClick={() => p.onControl(control?.muted ? "UNMUTE" : "MUTE")} aria-pressed={!!control?.muted} data-testid="ctl-mute">
@@ -161,35 +187,21 @@ export function CallHeader(p: {
               </Button>
             )}
             {caps.end && (
-              <Button variant="danger" disabled={!live || !!p.controlBusy || (pending("END") && !endStale)} onClick={() => p.onControl("END")} data-testid="ctl-end">
+              <Button variant="danger" className="min-w-36" disabled={!live || !!p.controlBusy || (pending("END") && !endStale)} onClick={() => p.onControl("END")} data-testid="ctl-end">
                 {pending("END") && !endStale ? A("ctl.ending") : A("ctl.end")}
               </Button>
             )}
           </div>
+        ) : withCustomer ? (
+          <span />
+        ) : (
+          shift
         )}
-
-        <div className="ml-auto flex flex-wrap items-center gap-2 lg:border-l lg:border-line lg:pl-4" role="group" aria-label={A("call.shift")} data-testid="shift-controls">
-          {!inCall && mode !== "acw" && mode !== "wrapup" && (
-            <span className="inline-flex items-center gap-1.5 text-sm" data-testid="agent-state">
-              <span className={`inline-block h-2 w-2 rounded-full ${STATE_DOT[confirmed] ?? "bg-muted"}`} aria-hidden="true" />
-              <span className="font-medium">{T(`agent.states.${confirmed}`)}</span>
-              <span className="tabular-nums text-muted">{fmtDuration(stateElapsed)}</span>
-            </span>
-          )}
-          {s?.pendingBreakAfterWrap && <span className="text-xs text-warning">{T("agent.breakAfterWrap")}</span>}
-          {!inCall && mode !== "acw" && mode !== "wrapup" && (
-            <Button variant="primary" disabled={!canReady} onClick={() => p.onState("READY")} data-testid="go-ready">
-              {T("agent.goReady")}
-            </Button>
-          )}
-          {confirmed === "READY" && <Button variant="secondary" disabled={!s || p.busy} onClick={() => p.onState("NOT_READY")}>{T("agent.notReady")}</Button>}
-          <Button variant="secondary" disabled={!s || p.busy || confirmed === "BREAK"} onClick={() => setBreakOpen(true)}>
-            {T("agent.break")}
-          </Button>
-          <Button variant="ghost" disabled={!s || p.busy} onClick={() => p.onState("OFFLINE", "End of shift")}>
-            {T("agent.endShift")}
-          </Button>
-        </div>
+        {telMode === "MOCK" && (
+          <span className="text-[13px] text-muted" title={A("tel.mockHint")} data-testid="telephony-mode">
+            {A("tel.mock")}
+          </span>
+        )}
       </div>
 
       {(endFailed || endStale) && (
